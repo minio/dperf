@@ -1,0 +1,7 @@
+*~
+*.test
+dist/
+*.zip
+*.minisig
+dperf
+!pkg/dperf
