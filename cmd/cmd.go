@@ -30,7 +30,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var Version string
+var Version string = "dev"
 
 // flags
 var (
@@ -44,7 +44,7 @@ var dperfCmd = &cobra.Command{
 	Short: "MinIO drive performance utility",
 	Long: `
 MinIO drive performance utility
--------------------------------- 
+--------------------------------
   dperf measures throughput of each of the drives mounted at PATH...
 `,
 	SilenceUsage:  true,
@@ -55,11 +55,11 @@ MinIO drive performance utility
 # run dpref on drive mounted at /mnt/drive1
 $ dperf /mnt/drive1
 
-# run dperf on drives 1 to 6. Output will be sorted by throughput. Fastest drive is at the top. 
+# run dperf on drives 1 to 6. Output will be sorted by throughput. Fastest drive is at the top.
 $ dperf /mnt/drive{1..6}
 
-# run dperf on drives one-by-one 
-$ dperf --serial /mnt/drive{1...6}  
+# run dperf on drives one-by-one
+$ dperf --serial /mnt/drive{1...6}
 `,
 	RunE: func(c *cobra.Command, args []string) error {
 		bs, err := humanize.ParseBytes(blockSize)
@@ -82,10 +82,6 @@ $ dperf --serial /mnt/drive{1...6}
 }
 
 func init() {
-	if dperfCmd.Version == "" {
-		dperfCmd.Version = "dev"
-	}
-
 	viper.AutomaticEnv()
 
 	kflags := flag.NewFlagSet("klog", flag.ExitOnError)

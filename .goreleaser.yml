@@ -1,0 +1,66 @@
+project_name: dperf
+
+release:
+   name_template: "Release version {{.Version}}"
+
+   github:
+    owner: minio
+    name: dperf
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  -
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - ppc64le
+      - s390x
+    ignore:
+      - goos: windows
+        goarch: arm64
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+      - --tags=kqueue
+    ldflags:
+      - "-s -w -X github.com/minio/dperf/cmd.Version={{.Version}}"
+
+archives:
+  -
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    format: binary
+
+nfpms:
+  -
+    vendor: MinIO, Inc.
+    homepage: https://github.com/minio/dperf
+    maintainer: MinIO Development <dev@min.io>
+    description: Dperf is a drive performance measurement tool.
+    license: GNU Affero General Public License v3.0
+    formats:
+      - deb
+      - rpm
+
+signs:
+  -
+    signature: "${artifact}.minisig"
+    cmd: "sh"
+    args:
+      - '-c'
+      - 'minisign -s /media/${USER}/minio/minisign.key -Sm ${artifact} < /media/${USER}/minio/minisign-passphrase'
+    artifacts: all
+
+snapshot:
+  name_template: v0.0.0@{{.ShortCommit}}
+
+changelog:
+  sort: asc
+
