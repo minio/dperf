@@ -1,33 +1,36 @@
-dperf - drive performance
---------------------------
+# dperf - drive performance
 
 dperf is a drive performance measurement tool to identify slow drives in your host. It takes multiple file paths as input, and performs I/O parallelly on those files. The read and write throughput are printed in sorted order, with the fastest drives shown first.
 
 The tool chooses sensible defaults for parameters such as block size, total bytes to read/write etc. to find I/O bottlenecks.
 
-Getting Started
-----------------
+## Install
 
-Run this command to install dperf
+### Binary
+
+| OS       | ARCH    | Binary                                                                                       |
+|:--------:|:-------:|:--------------------------------------------------------------------------------------------:|
+| Linux    | amd64   | [linux-amd64](https://github.com/minio/dperf/releases/latest/download/dperf-linux-amd64)         |
+| Linux    | arm64   | [linux-arm64](https://github.com/minio/dperf/releases/latest/download/dperf-linux-arm64)         |
+| Linux    | ppc64le | [linux-ppc64le](https://github.com/minio/dperf/releases/latest/download/dperf-linux-ppc64le)     |
+| Linux    | s390x   | [linux-s390x](https://github.com/minio/dperf/releases/latest/download/dperf-linux-s390x)         |
+
+### Source
 
 ```
-wget ${DOWNLOAD_URL}
+go install github.com/minio/dperf@latest
 ```
 
-If you have a golang dev environment
+> You will need a working Go environment. Therefore, please follow [How to install Go](https://golang.org/doc/install).
+> Minimum version required is go1.17
 
-```
-go get github.com/minio/dperf
-```
-
-Usage
-------
+## Usage
 
 ```
 $ dperf --help
 
 MinIO drive performance utility
--------------------------------- 
+--------------------------------
   dperf measures throughput of each of the drives mounted at PATH...
 
 Usage:
@@ -36,14 +39,13 @@ Usage:
 Examples:
 
 # run dpref on drive mounted at /mnt/drive1
-$ dperf /mnt/drive1
+λ dperf /mnt/drive1
 
-# run dperf on drives 1 to 6. Output will be sorted by throughput. Fastest drive is at the top. 
-$ dperf /mnt/drive{1..6}
+# run dperf on drives 1 to 6. Output will be sorted by throughput. Fastest drive is at the top.
+λ dperf /mnt/drive{1..6}
 
-# run dperf on drives one-by-one 
-$ dperf --serial /mnt/drive{1...6}  
-
+# run dperf on drives one-by-one
+λ dperf --serial /mnt/drive{1...6}
 
 Flags:
   -b, --blocksize string   read/write block size (default "4MiB")
