@@ -23,12 +23,14 @@ import (
 	"sort"
 )
 
+// DrivePerf options
 type DrivePerf struct {
 	Serial    bool
 	BlockSize uint64
 	FileSize  uint64
 }
 
+// Run drive performance
 func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
 	parallelism := len(paths)
 	if d.Serial {

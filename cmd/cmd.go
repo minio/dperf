@@ -30,7 +30,8 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var Version string = "dev"
+// Version version string for dperf
+var Version = "dev"
 
 // flags
 var (

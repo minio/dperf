@@ -24,6 +24,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 )
 
+// DrivePerfResult drive run result
 type DrivePerfResult struct {
 	Path            string
 	WriteThroughput uint64
@@ -62,7 +63,7 @@ func render(results []*DrivePerfResult) {
 			}
 			return ""
 		}()
-		
+
 		output := []interface{}{
 			result.Path,
 			read,

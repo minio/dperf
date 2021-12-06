@@ -1,7 +1,7 @@
 dperf - drive performance
 --------------------------
 
-dperf is a drive performance measurement tool to identify slow drives in your host. It takes multiple file paths as input, and performs I/O parallely on those files. The read and write throughput are printed in sorted order, with the fastest drives shown first.
+dperf is a drive performance measurement tool to identify slow drives in your host. It takes multiple file paths as input, and performs I/O parallelly on those files. The read and write throughput are printed in sorted order, with the fastest drives shown first.
 
 The tool chooses sensible defaults for parameters such as block size, total bytes to read/write etc. to find I/O bottlenecks.
 

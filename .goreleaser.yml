@@ -15,16 +15,11 @@ builds:
   -
     goos:
       - linux
-      - darwin
-      - windows
     goarch:
       - amd64
       - arm64
       - ppc64le
       - s390x
-    ignore:
-      - goos: windows
-        goarch: arm64
     env:
       - CGO_ENABLED=0
     flags:
@@ -63,4 +58,3 @@ snapshot:
 
 changelog:
   sort: asc
-
