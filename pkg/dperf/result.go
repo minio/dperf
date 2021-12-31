@@ -33,7 +33,7 @@ type DrivePerfResult struct {
 	Error           error
 }
 
-func render(results []*DrivePerfResult) {
+func (d *DrivePerf) render(results []*DrivePerfResult) {
 	headers := []interface{}{
 		"PATH",
 		"READ",
@@ -78,9 +78,10 @@ func render(results []*DrivePerfResult) {
 
 		t.AppendRow(output)
 	}
-	t.Render()
-
-	fmt.Println()
+	if d.Verbose {
+		t.Render()
+		fmt.Println()
+	}
 	fmt.Printf("Aggregate READs: %s/s\n", humanize.IBytes(aggregateRead))
 	fmt.Printf("Aggregate WRITEs: %s/s\n", humanize.IBytes(aggregateWrite))
 }

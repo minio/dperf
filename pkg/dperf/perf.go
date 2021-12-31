@@ -26,6 +26,7 @@ import (
 // DrivePerf options
 type DrivePerf struct {
 	Serial    bool
+	Verbose   bool
 	BlockSize uint64
 	FileSize  uint64
 }
@@ -89,6 +90,6 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
 		return results[i].ReadThroughput > results[j].ReadThroughput
 	})
 
-	render(results)
+	d.render(results)
 	return nil
 }

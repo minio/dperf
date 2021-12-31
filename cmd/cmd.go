@@ -36,6 +36,7 @@ var Version = "dev"
 // flags
 var (
 	serial    = false
+	verbose   = false
 	blockSize = "4MiB"
 	fileSize  = "1GiB"
 )
@@ -77,6 +78,7 @@ $ dperf --serial /mnt/drive{1...6}
 			Serial:    serial,
 			BlockSize: bs,
 			FileSize:  fs,
+			Verbose:   verbose,
 		}
 		return perf.Run(c.Context(), args...)
 	},
@@ -96,7 +98,9 @@ func init() {
 	flag.Set("alsologtostderr", "true")
 
 	dperfCmd.PersistentFlags().BoolVarP(&serial,
-		"serial", "", serial, "run tests one by one, instead of all at once.")
+		"serial", "", serial, "run tests one by one, instead of all at once")
+	dperfCmd.PersistentFlags().BoolVarP(&verbose,
+		"verbose", "", verbose, "print READ/WRITE for each paths independently, default only prints aggregated")
 	dperfCmd.PersistentFlags().StringVarP(&blockSize,
 		"blocksize", "b", blockSize, "read/write block size")
 	dperfCmd.PersistentFlags().StringVarP(&fileSize,
