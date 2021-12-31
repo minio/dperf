@@ -17,6 +17,7 @@
 package dperf
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/dustin/go-humanize"
@@ -50,9 +51,13 @@ func render(results []*DrivePerfResult) {
 	style.Color.Header = text.Colors{text.FgHiBlue, text.BgHiBlack}
 	t.SetStyle(style)
 
+	var aggregateRead uint64
+	var aggregateWrite uint64
 	for _, result := range results {
 		read := humanize.IBytes(result.ReadThroughput) + "/s"
 		write := humanize.IBytes(result.WriteThroughput) + "/s"
+		aggregateRead += result.ReadThroughput
+		aggregateWrite += result.WriteThroughput
 		if result.Error != nil {
 			read = "-"
 			write = "-"
@@ -74,4 +79,8 @@ func render(results []*DrivePerfResult) {
 		t.AppendRow(output)
 	}
 	t.Render()
+
+	fmt.Println()
+	fmt.Printf("Aggregate READs: %s/s\n", humanize.IBytes(aggregateRead))
+	fmt.Printf("Aggregate WRITEs: %s/s\n", humanize.IBytes(aggregateWrite))
 }
