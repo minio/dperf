@@ -18,8 +18,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"path/filepath"
 
 	"github.com/dustin/go-humanize"
 	"github.com/spf13/cobra"
@@ -80,7 +82,17 @@ $ dperf --serial /mnt/drive{1...6}
 			FileSize:  fs,
 			Verbose:   verbose,
 		}
-		return perf.Run(c.Context(), args...)
+		paths := make([]string, 0, len(args))
+		for _, arg := range args {
+			if filepath.Clean(arg) == "" {
+				return errors.New("empty paths are not allowed as input")
+			}
+			if filepath.Clean(arg) == "/" {
+				return errors.New("not allowed to write at the root of the system, please choose a valid path")
+			}
+			paths = append(paths, filepath.Clean(arg))
+		}
+		return perf.Run(c.Context(), paths...)
 	},
 }
 

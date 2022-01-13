@@ -19,8 +19,8 @@ package dperf
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"sort"
+	"sync"
 )
 
 // DrivePerf options
@@ -31,6 +31,30 @@ type DrivePerf struct {
 	FileSize  uint64
 }
 
+func (d *DrivePerf) runTests(ctx context.Context, path string) *DrivePerfResult {
+	defer os.RemoveAll(path)
+
+	writeThroughput, err := d.runWriteTest(ctx, path)
+	if err != nil {
+		return &DrivePerfResult{
+			Path:  path,
+			Error: err,
+		}
+	}
+	readThroughput, err := d.runReadTest(ctx, path)
+	if err != nil {
+		return &DrivePerfResult{
+			Path:  path,
+			Error: err,
+		}
+	}
+	return &DrivePerfResult{
+		Path:            path,
+		ReadThroughput:  uint64(readThroughput),
+		WriteThroughput: uint64(writeThroughput),
+	}
+}
+
 // Run drive performance
 func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
 	parallelism := len(paths)
@@ -38,52 +62,24 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
 		parallelism = 1
 	}
 
-	threads := make(chan struct{}, parallelism)
-	defer close(threads)
-
-	resultChan := make(chan *DrivePerfResult)
-	defer close(resultChan)
-
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	for _, path := range paths {
-		go func(path string) {
-			defer os.RemoveAll(path)
-
-			threads <- struct{}{}
-
-			writeThroughput, err := d.runWriteTest(childCtx, path)
-			if err != nil {
-				resultChan <- &DrivePerfResult{
-					Path:  path,
-					Error: err,
-				}
-			}
-			readThroughput, err := d.runReadTest(childCtx, path)
-			if err != nil {
-				resultChan <- &DrivePerfResult{
-					Path:  path,
-					Error: err,
-				}
-			}
-			resultChan <- &DrivePerfResult{
-				Path:            path,
-				ReadThroughput:  uint64(readThroughput),
-				WriteThroughput: uint64(writeThroughput),
-			}
-			<-threads
-		}(filepath.Clean(path))
-	}
-
-	results := []*DrivePerfResult{}
-	for i := 0; i < len(paths); i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case result := <-resultChan:
-			results = append(results, result)
+	results := make([]*DrivePerfResult, len(paths))
+	if d.Serial {
+		for i, path := range paths {
+			results[i] = d.runTests(childCtx, path)
 		}
+	} else {
+		var wg sync.WaitGroup
+		wg.Add(parallelism)
+		for i, path := range paths {
+			go func(idx int, path string) {
+				defer wg.Done()
+				results[idx] = d.runTests(childCtx, path)
+			}(i, path)
+		}
+		wg.Wait()
 	}
 
 	sort.Slice(results, func(i, j int) bool {

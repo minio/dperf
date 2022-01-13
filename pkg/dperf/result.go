@@ -17,12 +17,9 @@
 package dperf
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/dustin/go-humanize"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/fatih/color"
+	"github.com/minio/pkg/console"
 )
 
 // DrivePerfResult drive run result
@@ -33,27 +30,56 @@ type DrivePerfResult struct {
 	Error           error
 }
 
+// An alias of string to represent the health color code of an object
+type col string
+
+const (
+	colGrey   col = "Grey"
+	colRed    col = "Red"
+	colYellow col = "Yellow"
+	colGreen  col = "Green"
+)
+
+// getPrintCol - map color code to color for printing
+func getPrintCol(c col) *color.Color {
+	switch c {
+	case colGrey:
+		return color.New(color.FgWhite, color.Bold)
+	case colRed:
+		return color.New(color.FgRed, color.Bold)
+	case colYellow:
+		return color.New(color.FgYellow, color.Bold)
+	case colGreen:
+		return color.New(color.FgGreen, color.Bold)
+	}
+	return nil
+}
+
 func (d *DrivePerf) render(results []*DrivePerfResult) {
-	headers := []interface{}{
+	dspOrder := []col{colGreen} // Header
+	for i := 0; i < len(results); i++ {
+		dspOrder = append(dspOrder, colGrey)
+	}
+
+	var printColors []*color.Color
+	for _, c := range dspOrder {
+		printColors = append(printColors, getPrintCol(c))
+	}
+
+	tbl := console.NewTable(printColors, []bool{false, false, false, false}, 0)
+
+	cellText := make([][]string, len(results)+1)
+	cellText[0] = []string{
 		"PATH",
 		"READ",
 		"WRITE",
 		"",
 	}
 
-	text.DisableColors()
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row(headers))
-
-	style := table.StyleColoredDark
-	style.Color.IndexColumn = text.Colors{text.FgHiBlue, text.BgHiBlack}
-	style.Color.Header = text.Colors{text.FgHiBlue, text.BgHiBlack}
-	t.SetStyle(style)
-
 	var aggregateRead uint64
 	var aggregateWrite uint64
-	for _, result := range results {
+	for idx, result := range results {
+		idx++
 		read := humanize.IBytes(result.ReadThroughput) + "/s"
 		write := humanize.IBytes(result.WriteThroughput) + "/s"
 		aggregateRead += result.ReadThroughput
@@ -62,26 +88,40 @@ func (d *DrivePerf) render(results []*DrivePerfResult) {
 			read = "-"
 			write = "-"
 		}
+
 		err := func() string {
 			if result.Error != nil {
 				return result.Error.Error()
 			}
-			return ""
+			return "✓"
 		}()
 
-		output := []interface{}{
+		cellText[idx] = []string{
 			result.Path,
 			read,
 			write,
 			err,
 		}
-
-		t.AppendRow(output)
 	}
 	if d.Verbose {
-		t.Render()
-		fmt.Println()
+		tbl.DisplayTable(cellText)
 	}
-	fmt.Printf("Aggregate READs: %s/s\n", humanize.IBytes(aggregateRead))
-	fmt.Printf("Aggregate WRITEs: %s/s\n", humanize.IBytes(aggregateWrite))
+
+	dspAggOrder := []col{colGreen, colGrey} // Header
+	printColors = []*color.Color{}
+	for _, c := range dspAggOrder {
+		printColors = append(printColors, getPrintCol(c))
+	}
+
+	tblAgg := console.NewTable(printColors, []bool{false, false}, 0)
+	cellText = make([][]string, 2)
+	cellText[0] = []string{
+		"TotalREAD",
+		"TotalWRITE",
+	}
+	cellText[1] = []string{
+		humanize.IBytes(aggregateRead) + "/s",
+		humanize.IBytes(aggregateWrite) + "/s",
+	}
+	tblAgg.DisplayTable(cellText)
 }
