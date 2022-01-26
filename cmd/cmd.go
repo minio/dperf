@@ -92,7 +92,7 @@ $ dperf --serial /mnt/drive{1...6}
 			}
 			paths = append(paths, filepath.Clean(arg))
 		}
-		return perf.Run(c.Context(), paths...)
+		return perf.RunAndRender(c.Context(), paths...)
 	},
 }
 

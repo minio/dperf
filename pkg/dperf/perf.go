@@ -56,7 +56,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string) *DrivePerfResult 
 }
 
 // Run drive performance
-func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
+func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResult, error) {
 	parallelism := len(paths)
 	if d.Serial {
 		parallelism = 1
@@ -86,6 +86,15 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) error {
 		return results[i].ReadThroughput > results[j].ReadThroughput
 	})
 
+	return results, nil
+}
+
+// Run drive performance and render it
+func (d *DrivePerf) RunAndRender(ctx context.Context, paths ...string) error {
+	results, err := d.Run(ctx, paths...)
+	if err != nil {
+		return err
+	}
 	d.render(results)
 	return nil
 }
