@@ -46,11 +46,6 @@ func mustGetUUID() string {
 
 func (d *DrivePerf) runTests(ctx context.Context, path string) (dr *DrivePerfResult) {
 	tmpPath := filepath.Join(path, ".writable-check.tmp")
-	defer func() {
-		if dr.Error == nil {
-			os.RemoveAll(dr.Path)
-		}
-	}()
 
 	writeThroughput, err := d.runWriteTest(ctx, tmpPath)
 	if err != nil {
@@ -99,6 +94,10 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 			}(i, path)
 		}
 		wg.Wait()
+	}
+
+	for _, res := range results {
+		os.RemoveAll(res.Path)
 	}
 
 	sort.Slice(results, func(i, j int) bool {
