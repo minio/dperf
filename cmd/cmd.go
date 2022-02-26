@@ -63,7 +63,7 @@ $ dperf /mnt/drive1
 $ dperf /mnt/drive{1..6}
 
 # run dperf on drives one-by-one
-$ dperf --serial /mnt/drive{1...6}
+$ dperf --serial /mnt/drive{1..6}
 `,
 	RunE: func(c *cobra.Command, args []string) error {
 		bs, err := humanize.ParseBytes(blockSize)

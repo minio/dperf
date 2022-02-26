@@ -19,8 +19,11 @@ package dperf
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 // DrivePerf options
@@ -31,17 +34,32 @@ type DrivePerf struct {
 	FileSize  uint64
 }
 
-func (d *DrivePerf) runTests(ctx context.Context, path string) *DrivePerfResult {
-	defer os.RemoveAll(path)
+// mustGetUUID - get a random UUID.
+func mustGetUUID() string {
+	u, err := uuid.NewRandom()
+	if err != nil {
+		panic(err)
+	}
 
-	writeThroughput, err := d.runWriteTest(ctx, path)
+	return u.String()
+}
+
+func (d *DrivePerf) runTests(ctx context.Context, path string) (dr *DrivePerfResult) {
+	tmpPath := filepath.Join(path, ".writable-check.tmp")
+	defer func() {
+		if dr.Error == nil {
+			os.RemoveAll(dr.Path)
+		}
+	}()
+
+	writeThroughput, err := d.runWriteTest(ctx, tmpPath)
 	if err != nil {
 		return &DrivePerfResult{
 			Path:  path,
 			Error: err,
 		}
 	}
-	readThroughput, err := d.runReadTest(ctx, path)
+	readThroughput, err := d.runReadTest(ctx, tmpPath)
 	if err != nil {
 		return &DrivePerfResult{
 			Path:  path,
@@ -65,10 +83,11 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	uuidStr := mustGetUUID()
 	results := make([]*DrivePerfResult, len(paths))
 	if d.Serial {
 		for i, path := range paths {
-			results[i] = d.runTests(childCtx, path)
+			results[i] = d.runTests(childCtx, filepath.Join(path, uuidStr))
 		}
 	} else {
 		var wg sync.WaitGroup
@@ -76,7 +95,7 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 		for i, path := range paths {
 			go func(idx int, path string) {
 				defer wg.Done()
-				results[idx] = d.runTests(childCtx, path)
+				results[idx] = d.runTests(childCtx, filepath.Join(path, uuidStr))
 			}(i, path)
 		}
 		wg.Wait()

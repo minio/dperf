@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -228,6 +229,10 @@ func (n nullReader) Read(b []byte) (int, error) {
 }
 
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return 0, err
+	}
+
 	startTime := time.Now()
 	f, err := directio.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {

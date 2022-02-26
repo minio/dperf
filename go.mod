@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/dustin/go-humanize v1.0.0
 	github.com/fatih/color v1.12.0
+	github.com/google/uuid v1.1.2
 	github.com/minio/pkg v1.1.14
 	github.com/ncw/directio v1.0.5
 	github.com/spf13/cobra v1.2.1
