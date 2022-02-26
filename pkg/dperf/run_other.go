@@ -22,9 +22,9 @@ package dperf
 import "context"
 
 func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, error) {
-	panic("Not Implemented")
+	return 0, ErrNotImplemented
 }
 
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, error) {
-	panic("Not Implemented")
+	return 0, ErrNotImplemented
 }

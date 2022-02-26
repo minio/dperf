@@ -17,10 +17,15 @@
 package dperf
 
 import (
+	"errors"
+
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	"github.com/minio/pkg/console"
 )
+
+// ErrNotImplemented returned for platforms where dperf will not run.
+var ErrNotImplemented = errors.New("not implemented")
 
 // DrivePerfResult drive run result
 type DrivePerfResult struct {
