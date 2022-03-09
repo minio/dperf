@@ -99,14 +99,16 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, erro
 	// Read Aligned block upto a multiple of BlockSize
 	data := directio.AlignedBlock(int(d.BlockSize))
 	of := &odirectReader{File: f, Bufp: &data}
-	defer of.Close()
 	n, err := io.Copy(ioutil.Discard, of)
 	if err != nil {
+		of.Close()
 		return 0, err
 	}
 	if n != int64(d.FileSize) {
+		of.Close()
 		return 0, fmt.Errorf("Expected read %d, read %d", d.FileSize, n)
 	}
+	of.Close()
 
 	timeTakenInSeconds := time.Since(startTime).Seconds()
 	return float64(d.FileSize) / timeTakenInSeconds, nil
@@ -238,20 +240,24 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, err
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
+
+	sync := func() {
 		fdatasync(f)
 		f.Close()
-	}()
+	}
 
 	// Write Aligned block upto a multiple of BlockSize
 	data := alignedBlock(int(d.BlockSize))
 	n, err := copyAligned(f, io.LimitReader(&nullReader{}, int64(d.FileSize)), data, int64(d.FileSize))
 	if err != nil {
+		sync()
 		return 0, err
 	}
 	if n != int64(d.FileSize) {
+		sync()
 		return 0, fmt.Errorf("Expected to write %d, wrote %d bytes", d.FileSize, n)
 	}
+	sync()
 	timeTakenInSeconds := time.Since(startTime).Seconds()
 
 	return float64(d.FileSize) / timeTakenInSeconds, nil
