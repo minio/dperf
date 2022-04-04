@@ -100,10 +100,6 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 		os.RemoveAll(res.Path)
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].ReadThroughput > results[j].ReadThroughput
-	})
-
 	return results, nil
 }
 
@@ -113,6 +109,11 @@ func (d *DrivePerf) RunAndRender(ctx context.Context, paths ...string) error {
 	if err != nil {
 		return err
 	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ReadThroughput > results[j].ReadThroughput
+	})
+
 	d.render(results)
 	return nil
 }
