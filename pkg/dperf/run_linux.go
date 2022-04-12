@@ -38,10 +38,15 @@ type odirectReader struct {
 	buf      []byte
 	err      error
 	seenRead bool
+
+	ctx context.Context
 }
 
 // Read - Implements Reader interface.
 func (o *odirectReader) Read(buf []byte) (n int, err error) {
+	if o.ctx.Err() != nil {
+		return 0, o.ctx.Err()
+	}
 	if o.err != nil && (len(o.buf) == 0 || !o.seenRead) {
 		return 0, o.err
 	}
@@ -97,7 +102,11 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, erro
 
 	// Read Aligned block upto a multiple of BlockSize
 	data := directio.AlignedBlock(int(d.BlockSize))
-	of := &odirectReader{File: f, Bufp: &data}
+	of := &odirectReader{
+		File: f,
+		Bufp: &data,
+		ctx:  ctx,
+	}
 	n, err := io.Copy(ioutil.Discard, of)
 	if err != nil {
 		of.Close()
@@ -149,9 +158,14 @@ func fadviseDontNeed(f *os.File) error {
 	return unix.Fadvise(int(f.Fd()), 0, 0, unix.FADV_DONTNEED)
 }
 
-type nullReader struct{}
+type nullReader struct {
+	ctx context.Context
+}
 
 func (n nullReader) Read(b []byte) (int, error) {
+	if n.ctx.Err() != nil {
+		return 0, n.ctx.Err()
+	}
 	return len(b), nil
 }
 
@@ -173,7 +187,7 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, err
 
 	// Write Aligned block upto a multiple of BlockSize
 	data := alignedBlock(int(d.BlockSize))
-	n, err := io.CopyBuffer(f, io.LimitReader(&nullReader{}, int64(d.FileSize)), data)
+	n, err := io.CopyBuffer(f, io.LimitReader(&nullReader{ctx: ctx}, int64(d.FileSize)), data)
 	if err != nil {
 		sync()
 		return 0, err
