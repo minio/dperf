@@ -44,17 +44,19 @@ func mustGetUUID() string {
 	return u.String()
 }
 
-func (d *DrivePerf) runTests(ctx context.Context, path string) (dr *DrivePerfResult) {
-	tmpPath := filepath.Join(path, ".writable-check.tmp")
-
-	writeThroughput, err := d.runWriteTest(ctx, tmpPath)
+func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) (dr *DrivePerfResult) {
+	testUUIDPath := filepath.Join(path, testUUID)
+	testPath := filepath.Join(testUUIDPath, ".writable-check.tmp")
+	defer os.RemoveAll(testUUIDPath)
+	
+	writeThroughput, err := d.runWriteTest(ctx, testPath)
 	if err != nil {
 		return &DrivePerfResult{
 			Path:  path,
 			Error: err,
 		}
 	}
-	readThroughput, err := d.runReadTest(ctx, tmpPath)
+	readThroughput, err := d.runReadTest(ctx, testPath)
 	if err != nil {
 		return &DrivePerfResult{
 			Path:  path,
@@ -82,7 +84,7 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 	results := make([]*DrivePerfResult, len(paths))
 	if d.Serial {
 		for i, path := range paths {
-			results[i] = d.runTests(childCtx, filepath.Join(path, uuidStr))
+			results[i] = d.runTests(childCtx, path, uuidStr)
 		}
 	} else {
 		var wg sync.WaitGroup
@@ -90,16 +92,16 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 		for i, path := range paths {
 			go func(idx int, path string) {
 				defer wg.Done()
-				results[idx] = d.runTests(childCtx, filepath.Join(path, uuidStr))
+				results[idx] = d.runTests(childCtx, path, uuidStr)
 			}(i, path)
 		}
 		wg.Wait()
 	}
 
-	for _, res := range results {
-		os.RemoveAll(res.Path)
+	if childCtx.Err() != nil {
+		return nil, childCtx.Err()
 	}
-
+	
 	return results, nil
 }
 

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/dustin/go-humanize"
@@ -106,6 +107,19 @@ $ dperf --serial /mnt/drive{1..6}
 			}
 			if filepath.Clean(arg) == "/" {
 				return errors.New("not allowed to write at the root of the system, please choose a valid path")
+			}
+			path := filepath.Clean(arg)
+
+			stat, err := os.Stat(path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return errors.New("directory at path '" + path + "' does not exist")
+				}
+				return err
+			}
+
+			if !stat.Mode().IsDir() {
+				return errors.New("path '" + path + "' is not a directory ")
 			}
 			paths = append(paths, filepath.Clean(arg))
 		}
