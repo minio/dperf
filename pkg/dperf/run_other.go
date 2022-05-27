@@ -21,10 +21,10 @@ package dperf
 
 import "context"
 
-func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, error) {
+func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error) {
 	return 0, ErrNotImplemented
 }
 
-func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, error) {
+func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, error) {
 	return 0, ErrNotImplemented
 }

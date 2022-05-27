@@ -93,7 +93,7 @@ func (o *odirectReader) Close() error {
 	return o.File.Close()
 }
 
-func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, error) {
+func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error) {
 	startTime := time.Now()
 	f, err := directio.OpenFile(path, os.O_RDONLY, 0400)
 	if err != nil {
@@ -119,7 +119,7 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (float64, erro
 	of.Close()
 
 	timeTakenInSeconds := time.Since(startTime).Seconds()
-	return float64(d.FileSize) / timeTakenInSeconds, nil
+	return d.FileSize / uint64(timeTakenInSeconds), nil
 }
 
 // disableDirectIO - disables directio mode.
@@ -169,7 +169,7 @@ func (n nullReader) Read(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, error) {
+func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
 	}
@@ -199,5 +199,5 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (float64, err
 	sync()
 	timeTakenInSeconds := time.Since(startTime).Seconds()
 
-	return float64(d.FileSize) / timeTakenInSeconds, nil
+	return d.FileSize / uint64(timeTakenInSeconds), nil
 }

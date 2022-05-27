@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/google/uuid"
@@ -44,29 +45,62 @@ func mustGetUUID() string {
 	return u.String()
 }
 
+const ioPerDrive = 4 // number of concurrent I/O per drive
+
 func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) (dr *DrivePerfResult) {
+	writeThroughputs := make([]uint64, ioPerDrive)
+	readThroughputs := make([]uint64, ioPerDrive)
+	errs := make([]error, ioPerDrive)
+
 	testUUIDPath := filepath.Join(path, testUUID)
 	testPath := filepath.Join(testUUIDPath, ".writable-check.tmp")
 	defer os.RemoveAll(testUUIDPath)
-	
-	writeThroughput, err := d.runWriteTest(ctx, testPath)
-	if err != nil {
-		return &DrivePerfResult{
-			Path:  path,
-			Error: err,
+
+	var wg sync.WaitGroup
+	wg.Add(ioPerDrive)
+	for i := 0; i < ioPerDrive; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			iopath := testPath + "-" + strconv.Itoa(idx)
+			writeThroughput, err := d.runWriteTest(ctx, iopath)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			writeThroughputs[idx] = writeThroughput
+			readThroughput, err := d.runReadTest(ctx, iopath)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			readThroughputs[idx] = readThroughput
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return &DrivePerfResult{
+				Path:  path,
+				Error: err,
+			}
 		}
 	}
-	readThroughput, err := d.runReadTest(ctx, testPath)
-	if err != nil {
-		return &DrivePerfResult{
-			Path:  path,
-			Error: err,
-		}
+
+	var writeThroughput uint64
+	for i := range writeThroughputs {
+		writeThroughput += writeThroughputs[i]
 	}
+
+	var readThroughput uint64
+	for i := range readThroughputs {
+		readThroughput += readThroughputs[i]
+	}
+
 	return &DrivePerfResult{
 		Path:            path,
-		ReadThroughput:  uint64(readThroughput),
-		WriteThroughput: uint64(writeThroughput),
+		ReadThroughput:  readThroughput,
+		WriteThroughput: writeThroughput,
 	}
 }
 
@@ -101,7 +135,7 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResul
 	if childCtx.Err() != nil {
 		return nil, childCtx.Err()
 	}
-	
+
 	return results, nil
 }
 
