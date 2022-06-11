@@ -169,6 +169,14 @@ func (n nullReader) Read(b []byte) (int, error) {
 	return len(b), nil
 }
 
+type odirectWriter struct {
+	File *os.File
+}
+
+func (o *odirectWriter) Write(buf []byte) (n int, err error) {
+	return o.File.Write(buf)
+}
+
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
@@ -187,7 +195,14 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 
 	// Write Aligned block upto a multiple of BlockSize
 	data := alignedBlock(int(d.BlockSize))
-	n, err := io.CopyBuffer(f, io.LimitReader(&nullReader{ctx: ctx}, int64(d.FileSize)), data)
+
+	// Use odirectWriter instead of os.File so io.CopyBuffer() will only be aware
+	// of a io.Writer interface and will be enforced to use the copy buffer.
+	of := &odirectWriter{
+		File: f,
+	}
+
+	n, err := io.CopyBuffer(of, io.LimitReader(&nullReader{ctx: ctx}, int64(d.FileSize)), data)
 	if err != nil {
 		sync()
 		return 0, err
