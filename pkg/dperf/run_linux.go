@@ -118,8 +118,8 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	}
 	of.Close()
 
-	timeTakenInSeconds := time.Since(startTime).Seconds()
-	return d.FileSize / uint64(timeTakenInSeconds), nil
+	throughputInSeconds := d.FileSize * uint64(time.Second) / uint64(time.Since(startTime))
+	return throughputInSeconds, nil
 }
 
 // disableDirectIO - disables directio mode.
@@ -212,7 +212,7 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 		return 0, fmt.Errorf("Expected to write %d, wrote %d bytes", d.FileSize, n)
 	}
 	sync()
-	timeTakenInSeconds := time.Since(startTime).Seconds()
 
-	return d.FileSize / uint64(timeTakenInSeconds), nil
+	throughputInSeconds := d.FileSize * uint64(time.Second) / uint64(time.Since(startTime))
+	return throughputInSeconds, nil
 }
