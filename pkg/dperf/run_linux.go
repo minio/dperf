@@ -33,11 +33,12 @@ import (
 
 // odirectReader - to support O_DIRECT reads for erasure backends.
 type odirectReader struct {
-	File     *os.File
-	Bufp     *[]byte
-	buf      []byte
-	err      error
-	seenRead bool
+	File      *os.File
+	Bufp      *[]byte
+	buf       []byte
+	err       error
+	seenRead  bool
+	alignment bool
 
 	ctx context.Context
 }
@@ -89,7 +90,11 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 // Close - Release the buffer and close the file.
 func (o *odirectReader) Close() error {
 	o.err = errors.New("internal error: odirectReader Read after Close")
-	fadviseDontNeed(o.File)
+	if !o.alignment {
+		// when we are not aligned, invalidate page-cache
+		// for raw drive performance.
+		fadviseDontNeed(o.File)
+	}
 	return o.File.Close()
 }
 
@@ -103,9 +108,10 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	// Read Aligned block upto a multiple of BlockSize
 	data := directio.AlignedBlock(int(d.BlockSize))
 	of := &odirectReader{
-		File: f,
-		Bufp: &data,
-		ctx:  ctx,
+		File:      f,
+		Bufp:      &data,
+		ctx:       ctx,
+		alignment: d.FileSize%4096 == 0,
 	}
 	n, err := io.Copy(ioutil.Discard, of)
 	of.Close()
