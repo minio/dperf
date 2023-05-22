@@ -108,18 +108,17 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 		ctx:  ctx,
 	}
 	n, err := io.Copy(ioutil.Discard, of)
+	of.Close()
 	if err != nil {
-		of.Close()
 		return 0, err
 	}
 	if n != int64(d.FileSize) {
-		of.Close()
 		return 0, fmt.Errorf("Expected read %d, read %d", d.FileSize, n)
 	}
-	of.Close()
 
-	throughputInSeconds := d.FileSize * uint64(time.Second) / uint64(time.Since(startTime))
-	return throughputInSeconds, nil
+	dt := float64(time.Since(startTime))
+	throughputInSeconds := (float64(d.FileSize) / dt) * float64(time.Second)
+	return uint64(throughputInSeconds), nil
 }
 
 // disableDirectIO - disables directio mode.
@@ -173,6 +172,11 @@ type odirectWriter struct {
 	File *os.File
 }
 
+func (o *odirectWriter) Close() error {
+	fdatasync(o.File)
+	return o.File.Close()
+}
+
 func (o *odirectWriter) Write(buf []byte) (n int, err error) {
 	return o.File.Write(buf)
 }
@@ -188,11 +192,6 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 		return 0, err
 	}
 
-	sync := func() {
-		fdatasync(f)
-		f.Close()
-	}
-
 	// Write Aligned block upto a multiple of BlockSize
 	data := alignedBlock(int(d.BlockSize))
 
@@ -203,16 +202,16 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 	}
 
 	n, err := io.CopyBuffer(of, io.LimitReader(&nullReader{ctx: ctx}, int64(d.FileSize)), data)
+	of.Close()
 	if err != nil {
-		sync()
 		return 0, err
 	}
+
 	if n != int64(d.FileSize) {
-		sync()
 		return 0, fmt.Errorf("Expected to write %d, wrote %d bytes", d.FileSize, n)
 	}
-	sync()
 
-	throughputInSeconds := d.FileSize * uint64(time.Second) / uint64(time.Since(startTime))
-	return throughputInSeconds, nil
+	dt := float64(time.Since(startTime))
+	throughputInSeconds := (float64(d.FileSize) / dt) * float64(time.Second)
+	return uint64(throughputInSeconds), nil
 }
