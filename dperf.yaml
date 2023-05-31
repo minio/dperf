@@ -34,7 +34,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: dperf
-          image: y4m4/dperf:dev
+          image: quay.io/minio/dperf:v0.4.5
           args: ["/export1", "/export2"]
           volumeMounts:
             - mountPath: /export1
