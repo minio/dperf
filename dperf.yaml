@@ -1,0 +1,50 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pv1-pvc
+  annotations:
+    volume.beta.kubernetes.io/storage-class: directpv-min-io
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pv2-pvc
+  annotations:
+    volume.beta.kubernetes.io/storage-class: directpv-min-io
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dperf
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: dperf
+          image: y4m4/dperf:dev
+          args: ["/export1", "/export2"]
+          volumeMounts:
+            - mountPath: /export1
+              name: pv1
+            - mountPath: /export2
+              name: pv2
+      volumes:
+        - name: pv1
+          persistentVolumeClaim:
+            claimName: pv1-pvc
+        - name: pv2
+          persistentVolumeClaim:
+            claimName: pv2-pvc
