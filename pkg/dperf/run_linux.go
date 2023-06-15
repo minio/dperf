@@ -95,11 +95,6 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 // Close - Release the buffer and close the file.
 func (o *odirectReader) Close() error {
 	o.err = errors.New("internal error: odirectReader Read after Close")
-	if !o.alignment {
-		// when we are not aligned, invalidate page-cache
-		// for raw drive performance.
-		fadviseDontNeed(o.File)
-	}
 	return o.File.Close()
 }
 
@@ -109,6 +104,7 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	if err != nil {
 		return 0, err
 	}
+	fadviseSequential(f, int64(d.FileSize))
 
 	// Read Aligned block upto a multiple of BlockSize
 	data := directio.AlignedBlock(int(d.BlockSize))
@@ -151,9 +147,8 @@ func fdatasync(f *os.File) error {
 	return syscall.Fdatasync(int(f.Fd()))
 }
 
-// fadviseDontNeed invalidates page-cache
-func fadviseDontNeed(f *os.File) error {
-	return unix.Fadvise(int(f.Fd()), 0, 0, unix.FADV_DONTNEED)
+func fadviseSequential(f *os.File, length int64) error {
+	return unix.Fadvise(int(f.Fd()), 0, length, unix.FADV_SEQUENTIAL)
 }
 
 type nullReader struct {
