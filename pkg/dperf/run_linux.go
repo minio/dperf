@@ -17,17 +17,22 @@
 package dperf
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/ncw/directio"
+	"github.com/secure-io/sio-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -56,7 +61,7 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 		n, err = o.File.Read(o.buf)
 		if err != nil && err != io.EOF {
 			if errors.Is(err, syscall.EINVAL) {
-				if err = disableDirectIO(o.File); err != nil {
+				if err = disableDirectIO(o.File.Fd()); err != nil {
 					o.err = err
 					return n, err
 				}
@@ -127,18 +132,6 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	return uint64(throughputInSeconds), nil
 }
 
-// disableDirectIO - disables directio mode.
-func disableDirectIO(f *os.File) error {
-	fd := f.Fd()
-	flag, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
-	if err != nil {
-		return err
-	}
-	flag &= ^(syscall.O_DIRECT)
-	_, err = unix.FcntlInt(fd, unix.F_SETFL, flag)
-	return err
-}
-
 // alignedBlock - pass through to directio implementation.
 func alignedBlock(blockSize int) []byte {
 	return directio.AlignedBlock(blockSize)
@@ -174,6 +167,24 @@ func (n nullReader) Read(b []byte) (int, error) {
 	return len(b), nil
 }
 
+func newEncReader(ctx context.Context) io.Reader {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	var randSrc [16]byte
+
+	_, err := io.ReadFull(rng, randSrc[:])
+	if err != nil {
+		panic(err)
+	}
+	rand.New(rng).Read(randSrc[:])
+	block, _ := aes.NewCipher(randSrc[:])
+	gcm, _ := cipher.NewGCM(block)
+	stream := sio.NewStream(gcm, sio.BufSize)
+
+	return stream.EncryptReader(&nullReader{ctx: ctx}, randSrc[:stream.NonceSize()], nil)
+
+}
+
 type odirectWriter struct {
 	File *os.File
 }
@@ -185,6 +196,78 @@ func (o *odirectWriter) Close() error {
 
 func (o *odirectWriter) Write(buf []byte) (n int, err error) {
 	return o.File.Write(buf)
+}
+
+// disableDirectIO - disables directio mode.
+func disableDirectIO(fd uintptr) error {
+	flag, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
+	if err != nil {
+		return err
+	}
+	flag &= ^(syscall.O_DIRECT)
+	_, err = unix.FcntlInt(fd, unix.F_SETFL, flag)
+	return err
+}
+
+func copyAligned(fd uintptr, w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64) (int64, error) {
+	// Writes remaining bytes in the buffer.
+	writeUnaligned := func(w io.Writer, buf []byte) (remainingWritten int64, err error) {
+		// Disable O_DIRECT on fd's on unaligned buffer
+		// perform an amortized Fdatasync(fd) on the fd at
+		// the end, this is performed by the caller before
+		// closing 'w'.
+		if err = disableDirectIO(fd); err != nil {
+			return remainingWritten, err
+		}
+		// Since w is *os.File io.Copy shall use ReadFrom() call.
+		return io.Copy(w, bytes.NewReader(buf))
+	}
+
+	var written int64
+	for {
+		buf := alignedBuf
+		if totalSize != -1 {
+			remaining := totalSize - written
+			if remaining < int64(len(buf)) {
+				buf = buf[:remaining]
+			}
+		}
+		nr, err := io.ReadFull(r, buf)
+		eof := err == io.EOF || err == io.ErrUnexpectedEOF
+		if err != nil && !eof {
+			return written, err
+		}
+		buf = buf[:nr]
+		var nw int64
+		if len(buf)%4096 == 0 {
+			var n int
+			// buf is aligned for directio write()
+			n, err = w.Write(buf)
+			nw = int64(n)
+		} else {
+			// buf is not aligned, hence use writeUnaligned()
+			nw, err = writeUnaligned(w, buf)
+		}
+		if nw > 0 {
+			written += nw
+		}
+		if err != nil {
+			return written, err
+		}
+		if nw != int64(len(buf)) {
+			return written, io.ErrShortWrite
+		}
+
+		if totalSize != -1 {
+			if written == totalSize {
+				return written, nil
+			}
+		}
+		if eof {
+			return written, nil
+		}
+	}
+
 }
 
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, error) {
@@ -207,7 +290,7 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 		File: f,
 	}
 
-	n, err := io.CopyBuffer(of, io.LimitReader(&nullReader{ctx: ctx}, int64(d.FileSize)), data)
+	n, err := copyAligned(f.Fd(), of, newEncReader(ctx), data, int64(d.FileSize))
 	of.Close()
 	if err != nil {
 		return 0, err
