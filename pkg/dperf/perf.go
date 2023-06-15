@@ -68,6 +68,15 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 				return
 			}
 			writeThroughputs[idx] = writeThroughput
+		}(i)
+	}
+	wg.Wait()
+
+	wg.Add(ioPerDrive)
+	for i := 0; i < ioPerDrive; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			iopath := testPath + "-" + strconv.Itoa(idx)
 			readThroughput, err := d.runReadTest(ctx, iopath)
 			if err != nil {
 				errs[idx] = err
