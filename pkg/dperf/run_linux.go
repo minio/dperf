@@ -98,7 +98,7 @@ func (o *odirectReader) Close() error {
 	return o.File.Close()
 }
 
-func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error) {
+func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	startTime := time.Now()
 	f, err := directio.OpenFile(path, os.O_RDONLY, 0400)
 	if err != nil {
@@ -106,8 +106,6 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	}
 	fadviseSequential(f, int64(d.FileSize))
 
-	// Read Aligned block upto a multiple of BlockSize
-	data := directio.AlignedBlock(int(d.BlockSize))
 	of := &odirectReader{
 		File:      f,
 		Bufp:      &data,
@@ -126,11 +124,6 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string) (uint64, error
 	dt := float64(time.Since(startTime))
 	throughputInSeconds := (float64(d.FileSize) / dt) * float64(time.Second)
 	return uint64(throughputInSeconds), nil
-}
-
-// alignedBlock - pass through to directio implementation.
-func alignedBlock(blockSize int) []byte {
-	return directio.AlignedBlock(blockSize)
 }
 
 // fdatasync - fdatasync() is similar to fsync(), but does not flush modified metadata
@@ -265,7 +258,7 @@ func copyAligned(fd uintptr, w io.Writer, r io.Reader, alignedBuf []byte, totalS
 
 }
 
-func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, error) {
+func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
 	}
@@ -275,9 +268,6 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string) (uint64, erro
 	if err != nil {
 		return 0, err
 	}
-
-	// Write Aligned block upto a multiple of BlockSize
-	data := alignedBlock(int(d.BlockSize))
 
 	// Use odirectWriter instead of os.File so io.CopyBuffer() will only be aware
 	// of a io.Writer interface and will be enforced to use the copy buffer.

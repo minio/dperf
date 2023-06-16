@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/ncw/directio"
 )
 
 // DrivePerf options
@@ -52,6 +53,12 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	readThroughputs := make([]uint64, ioPerDrive)
 	errs := make([]error, ioPerDrive)
 
+	dataBuffers := make([][]byte, ioPerDrive)
+	for i := 0; i < ioPerDrive; i++ {
+		// Read Aligned block upto a multiple of BlockSize
+		dataBuffers[i] = directio.AlignedBlock(int(d.BlockSize))
+	}
+
 	testUUIDPath := filepath.Join(path, testUUID)
 	testPath := filepath.Join(testUUIDPath, ".writable-check.tmp")
 	defer os.RemoveAll(testUUIDPath)
@@ -62,7 +69,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 		go func(idx int) {
 			defer wg.Done()
 			iopath := testPath + "-" + strconv.Itoa(idx)
-			writeThroughput, err := d.runWriteTest(ctx, iopath)
+			writeThroughput, err := d.runWriteTest(ctx, iopath, dataBuffers[idx])
 			if err != nil {
 				errs[idx] = err
 				return
@@ -77,7 +84,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 		go func(idx int) {
 			defer wg.Done()
 			iopath := testPath + "-" + strconv.Itoa(idx)
-			readThroughput, err := d.runReadTest(ctx, iopath)
+			readThroughput, err := d.runReadTest(ctx, iopath, dataBuffers[idx])
 			if err != nil {
 				errs[idx] = err
 				return
@@ -114,36 +121,34 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 }
 
 // Run drive performance
-func (d *DrivePerf) Run(ctx context.Context, paths ...string) ([]*DrivePerfResult, error) {
-	parallelism := len(paths)
-	if d.Serial {
-		parallelism = 1
-	}
-
+func (d *DrivePerf) Run(ctx context.Context, paths ...string) (results []*DrivePerfResult, err error) {
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	defer func() {
+		if childCtx.Err() != nil {
+			err = childCtx.Err()
+		}
+	}()
+
 	uuidStr := mustGetUUID()
-	results := make([]*DrivePerfResult, len(paths))
+	results = make([]*DrivePerfResult, len(paths))
 	if d.Serial {
 		for i, path := range paths {
 			results[i] = d.runTests(childCtx, path, uuidStr)
 		}
-	} else {
-		var wg sync.WaitGroup
-		wg.Add(parallelism)
-		for i, path := range paths {
-			go func(idx int, path string) {
-				defer wg.Done()
-				results[idx] = d.runTests(childCtx, path, uuidStr)
-			}(i, path)
-		}
-		wg.Wait()
+		return results, nil
 	}
 
-	if childCtx.Err() != nil {
-		return nil, childCtx.Err()
+	var wg sync.WaitGroup
+	wg.Add(len(paths))
+	for i, path := range paths {
+		go func(idx int, path string) {
+			defer wg.Done()
+			results[idx] = d.runTests(childCtx, path, uuidStr)
+		}(i, path)
 	}
+	wg.Wait()
 
 	return results, nil
 }
