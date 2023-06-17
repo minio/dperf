@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 
 	"github.com/dustin/go-humanize"
-	"github.com/ncw/directio"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -36,6 +35,9 @@ import (
 
 // Version version string for dperf
 var Version = "dev"
+
+// O_DIRECT align size.
+const alignSize = 4096
 
 // flags
 var (
@@ -73,11 +75,11 @@ $ dperf --serial /mnt/drive{1..6}
 			return fmt.Errorf("Invalid blocksize format: %v", err)
 		}
 
-		if bs < directio.AlignSize {
+		if bs < alignSize {
 			return fmt.Errorf("Invalid blocksize must greater than 4k: %d", bs)
 		}
 
-		if bs%directio.AlignSize != 0 {
+		if bs%alignSize != 0 {
 			return fmt.Errorf("Invalid blocksize must be multiples of 4k: %d", bs)
 		}
 
@@ -86,11 +88,11 @@ $ dperf --serial /mnt/drive{1..6}
 			return fmt.Errorf("Invalid filesize format: %v", err)
 		}
 
-		if fs < directio.AlignSize {
+		if fs < alignSize {
 			return fmt.Errorf("Invalid filesize must greater than 4k: %d", fs)
 		}
 
-		if fs%directio.AlignSize != 0 {
+		if fs%alignSize != 0 {
 			return fmt.Errorf("Invalid filesize must multiples of 4k: %d", fs)
 		}
 
