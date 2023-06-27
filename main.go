@@ -1,5 +1,5 @@
 // This file is part of MinIO dperf
-// Copyright (c) 2021 MinIO, Inc.
+// Copyright (c) 2021-2023 MinIO, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/minio/dperf/cmd"
-
-	"k8s.io/klog/v2"
 )
 
 func main() {
@@ -36,7 +34,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		s := <-sigs
-		klog.V(1).Infof("Exiting on signal %s %#v", s.String(), s)
+		fmt.Printf("Exiting on signal %s %#v\n", s.String(), s)
 		cancel()
 		<-time.After(1 * time.Second)
 		os.Exit(1)

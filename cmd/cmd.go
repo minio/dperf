@@ -22,15 +22,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/dustin/go-humanize"
+	"github.com/lrita/numa"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/minio/dperf/pkg/dperf"
-
-	"k8s.io/klog/v2"
 )
 
 // Version version string for dperf
@@ -45,6 +46,7 @@ var (
 	verbose   = false
 	blockSize = "4MiB"
 	fileSize  = "1GiB"
+	cpuNode   = 0
 )
 
 var dperfCmd = &cobra.Command{
@@ -70,6 +72,31 @@ $ dperf /mnt/drive{1..6}
 $ dperf --serial /mnt/drive{1..6}
 `,
 	RunE: func(c *cobra.Command, args []string) error {
+		if cpuNode > -1 {
+			cpumask, err := numa.NodeToCPUMask(cpuNode)
+			if err != nil {
+				return err
+			}
+
+			if err = numa.SetSchedAffinity(0, cpumask); err != nil {
+				return err
+			}
+
+			if v := os.Getenv("_DPERF_AVOID_RESPAWN"); v == "" {
+				// Use the original binary location. This works with symlinks such that if
+				// the file it points to has been changed we will use the updated symlink.
+				argv0, err := exec.LookPath(os.Args[0])
+				if err != nil {
+					return err
+				}
+
+				// Invokes the execve system call.
+				// Re-uses the same pid. This preserves the pid over multiple server-respawns.
+				os.Setenv("_DPERF_AVOID_RESPAWN", "1")
+				return syscall.Exec(argv0, os.Args, os.Environ())
+			}
+		}
+
 		bs, err := humanize.ParseBytes(blockSize)
 		if err != nil {
 			return fmt.Errorf("Invalid blocksize format: %v", err)
@@ -132,12 +159,8 @@ $ dperf --serial /mnt/drive{1..6}
 func init() {
 	viper.AutomaticEnv()
 
-	kflags := flag.NewFlagSet("klog", flag.ExitOnError)
-	klog.InitFlags(kflags)
-
 	// parse the go default flagset to get flags for glog and other packages in future
 	dperfCmd.PersistentFlags().AddGoFlagSet(flag.CommandLine)
-	dperfCmd.PersistentFlags().AddGoFlagSet(kflags)
 
 	flag.Set("logtostderr", "true")
 	flag.Set("alsologtostderr", "true")
@@ -150,6 +173,8 @@ func init() {
 		"blocksize", "b", blockSize, "read/write block size")
 	dperfCmd.PersistentFlags().StringVarP(&fileSize,
 		"filesize", "f", fileSize, "amount of data to read/write per drive")
+	dperfCmd.PersistentFlags().IntVarP(&cpuNode,
+		"cpunode", "c", -1, "execute on a specific CPU node, defaults to all CPU nodes")
 
 	dperfCmd.PersistentFlags().MarkHidden("alsologtostderr")
 	dperfCmd.PersistentFlags().MarkHidden("add_dir_header")
