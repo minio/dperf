@@ -50,6 +50,7 @@ Examples:
 Flags:
   -b, --blocksize string   read/write block size (default "4MiB")
   -f, --filesize string    amount of data to read/write per drive (default "1GiB")
+  -i, --ioperdrive int     number of concurrent I/O per drive (default 4)
   -h, --help               help for dperf
       --serial             run tests one by one, instead of all at once.
       --version            version for dperf

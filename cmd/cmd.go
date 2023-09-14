@@ -42,11 +42,12 @@ const alignSize = 4096
 
 // flags
 var (
-	serial    = false
-	verbose   = false
-	blockSize = "4MiB"
-	fileSize  = "1GiB"
-	cpuNode   = 0
+	serial     = false
+	verbose    = false
+	blockSize  = "4MiB"
+	fileSize   = "1GiB"
+	cpuNode    = 0
+	ioPerDrive = 4
 )
 
 var dperfCmd = &cobra.Command{
@@ -123,11 +124,16 @@ $ dperf --serial /mnt/drive{1..6}
 			return fmt.Errorf("Invalid filesize must multiples of 4k: %d", fs)
 		}
 
+		if ioPerDrive <= 0 {
+			return fmt.Errorf("Invalid ioperdrive must greater than 0: %d", ioPerDrive)
+		}
+
 		perf := &dperf.DrivePerf{
-			Serial:    serial,
-			BlockSize: bs,
-			FileSize:  fs,
-			Verbose:   verbose,
+			Serial:     serial,
+			BlockSize:  bs,
+			FileSize:   fs,
+			Verbose:    verbose,
+			IOPerDrive: ioPerDrive,
 		}
 		paths := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -175,6 +181,8 @@ func init() {
 		"filesize", "f", fileSize, "amount of data to read/write per drive")
 	dperfCmd.PersistentFlags().IntVarP(&cpuNode,
 		"cpunode", "c", -1, "execute on a specific CPU node, defaults to all CPU nodes")
+	dperfCmd.PersistentFlags().IntVarP(&ioPerDrive,
+		"ioperdrive", "i", ioPerDrive, "number of concurrent I/O per drive, default is 4")
 
 	dperfCmd.PersistentFlags().MarkHidden("alsologtostderr")
 	dperfCmd.PersistentFlags().MarkHidden("add_dir_header")
