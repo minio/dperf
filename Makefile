@@ -6,7 +6,7 @@ install: build ## builds dperf
 	@echo "Installation successful. To learn more, try \"dperf --help\"."
 
 build: 
-        @CGO_ENABLED=0 go build --ldflags "-s -w"
+	@CGO_ENABLED=0 go build --ldflags "-s -w"
 
 clean:
 	@echo "Cleaning up all the generated files"
