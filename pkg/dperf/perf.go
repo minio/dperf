@@ -30,10 +30,11 @@ import (
 
 // DrivePerf options
 type DrivePerf struct {
-	Serial    bool
-	Verbose   bool
-	BlockSize uint64
-	FileSize  uint64
+	Serial     bool
+	Verbose    bool
+	BlockSize  uint64
+	FileSize   uint64
+	IOPerDrive int
 }
 
 // mustGetUUID - get a random UUID.
@@ -46,15 +47,13 @@ func mustGetUUID() string {
 	return u.String()
 }
 
-const ioPerDrive = 4 // number of concurrent I/O per drive
-
 func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) (dr *DrivePerfResult) {
-	writeThroughputs := make([]uint64, ioPerDrive)
-	readThroughputs := make([]uint64, ioPerDrive)
-	errs := make([]error, ioPerDrive)
+	writeThroughputs := make([]uint64, d.IOPerDrive)
+	readThroughputs := make([]uint64, d.IOPerDrive)
+	errs := make([]error, d.IOPerDrive)
 
-	dataBuffers := make([][]byte, ioPerDrive)
-	for i := 0; i < ioPerDrive; i++ {
+	dataBuffers := make([][]byte, d.IOPerDrive)
+	for i := 0; i < d.IOPerDrive; i++ {
 		// Read Aligned block upto a multiple of BlockSize
 		dataBuffers[i] = directio.AlignedBlock(int(d.BlockSize))
 	}
@@ -64,8 +63,8 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	defer os.RemoveAll(testUUIDPath)
 
 	var wg sync.WaitGroup
-	wg.Add(ioPerDrive)
-	for i := 0; i < ioPerDrive; i++ {
+	wg.Add(int(d.IOPerDrive))
+	for i := 0; i < int(d.IOPerDrive); i++ {
 		go func(idx int) {
 			defer wg.Done()
 			iopath := testPath + "-" + strconv.Itoa(idx)
@@ -79,8 +78,8 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	}
 	wg.Wait()
 
-	wg.Add(ioPerDrive)
-	for i := 0; i < ioPerDrive; i++ {
+	wg.Add(d.IOPerDrive)
+	for i := 0; i < d.IOPerDrive; i++ {
 		go func(idx int) {
 			defer wg.Done()
 			iopath := testPath + "-" + strconv.Itoa(idx)
