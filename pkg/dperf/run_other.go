@@ -28,3 +28,7 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string, _ []byte) (uin
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string, _ []byte) (uint64, error) {
 	return 0, ErrNotImplemented
 }
+
+func alignedBlock(blockSize int) []byte {
+	return make([]byte, 0)
+}
