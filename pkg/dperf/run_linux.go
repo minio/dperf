@@ -126,6 +126,11 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (
 	return uint64(throughputInSeconds), nil
 }
 
+// alignedBlock - pass through to directio implementation.
+func alignedBlock(blockSize int) []byte {
+	return directio.AlignedBlock(blockSize)
+}
+
 // fdatasync - fdatasync() is similar to fsync(), but does not flush modified metadata
 // unless that metadata is needed in order to allow a subsequent data retrieval
 // to  be  correctly  handled.   For example, changes to st_atime or st_mtime

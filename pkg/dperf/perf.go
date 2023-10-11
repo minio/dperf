@@ -25,7 +25,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/ncw/directio"
 )
 
 // DrivePerf options
@@ -55,7 +54,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	dataBuffers := make([][]byte, d.IOPerDrive)
 	for i := 0; i < d.IOPerDrive; i++ {
 		// Read Aligned block upto a multiple of BlockSize
-		dataBuffers[i] = directio.AlignedBlock(int(d.BlockSize))
+		dataBuffers[i] = alignedBlock(int(d.BlockSize))
 	}
 
 	testUUIDPath := filepath.Join(path, testUUID)
