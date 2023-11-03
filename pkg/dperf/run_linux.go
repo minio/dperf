@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -38,7 +37,7 @@ import (
 
 // odirectReader - to support O_DIRECT reads for erasure backends.
 type odirectReader struct {
-	File      *os.File
+	fd        int
 	Bufp      *[]byte
 	buf       []byte
 	err       error
@@ -58,14 +57,14 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 	}
 	if !o.seenRead {
 		o.buf = *o.Bufp
-		n, err = o.File.Read(o.buf)
+		n, err = syscall.Read(o.fd, o.buf)
 		if err != nil && err != io.EOF {
 			if errors.Is(err, syscall.EINVAL) {
-				if err = disableDirectIO(o.File.Fd()); err != nil {
+				if err = disableDirectIO(uintptr(o.fd)); err != nil {
 					o.err = err
 					return n, err
 				}
-				n, err = o.File.Read(o.buf)
+				n, err = syscall.Read(o.fd, o.buf)
 			}
 			if err != nil && err != io.EOF {
 				o.err = err
@@ -73,7 +72,9 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 			}
 		}
 		if n == 0 {
-			// err is likely io.EOF
+			if err == nil {
+				err = io.EOF
+			}
 			o.err = err
 			return n, err
 		}
@@ -95,24 +96,31 @@ func (o *odirectReader) Read(buf []byte) (n int, err error) {
 // Close - Release the buffer and close the file.
 func (o *odirectReader) Close() error {
 	o.err = errors.New("internal error: odirectReader Read after Close")
-	return o.File.Close()
+	return syscall.Close(o.fd)
+}
+
+type nullWriter struct{}
+
+func (n nullWriter) Write(b []byte) (int, error) {
+	return len(b), nil
 }
 
 func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	startTime := time.Now()
-	f, err := directio.OpenFile(path, os.O_RDONLY, 0400)
+	fd, err := syscall.Open(path, syscall.O_DIRECT|syscall.O_RDONLY, 0o400)
 	if err != nil {
 		return 0, err
 	}
-	fadviseSequential(f, int64(d.FileSize))
+	unix.Fadvise(fd, 0, int64(d.FileSize), unix.FADV_SEQUENTIAL)
 
 	of := &odirectReader{
-		File:      f,
+		fd:        fd,
 		Bufp:      &data,
 		ctx:       ctx,
 		alignment: d.FileSize%4096 == 0,
 	}
-	n, err := io.Copy(ioutil.Discard, of)
+
+	n, err := io.Copy(&nullWriter{}, of)
 	of.Close()
 	if err != nil {
 		return 0, err
@@ -175,7 +183,6 @@ func newEncReader(ctx context.Context) io.Reader {
 	stream := sio.NewStream(gcm, sio.BufSize)
 
 	return stream.EncryptReader(&nullReader{ctx: ctx}, randSrc[:stream.NonceSize()], nil)
-
 }
 
 type odirectWriter struct {
@@ -260,7 +267,6 @@ func copyAligned(fd uintptr, w io.Writer, r io.Reader, alignedBuf []byte, totalS
 			return written, nil
 		}
 	}
-
 }
 
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) (uint64, error) {
@@ -269,7 +275,7 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 	}
 
 	startTime := time.Now()
-	f, err := directio.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	f, err := directio.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
