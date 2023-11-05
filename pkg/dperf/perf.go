@@ -138,6 +138,10 @@ func (d *DrivePerf) Run(ctx context.Context, paths ...string) (results []*DriveP
 		return results, nil
 	}
 
+	if d.IOPerDrive == 0 {
+		d.IOPerDrive = 4
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(len(paths))
 	for i, path := range paths {
