@@ -7,7 +7,7 @@ require (
 	github.com/fatih/color v1.15.0
 	github.com/google/uuid v1.3.0
 	github.com/lrita/numa v1.0.2
-	github.com/minio/pkg v1.7.5
+	github.com/minio/pkg/v2 v2.0.4
 	github.com/ncw/directio v1.0.5
 	github.com/secure-io/sio-go v0.3.1
 	github.com/spf13/cobra v1.7.0
