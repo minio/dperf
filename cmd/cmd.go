@@ -35,7 +35,10 @@ import (
 var Version = "dev"
 
 // O_DIRECT align size.
-const alignSize = 4096
+const (
+	alignSize = 4096
+	tmpFile   = "..tmpFile"
+)
 
 // flags
 var (
@@ -126,8 +129,13 @@ $ dperf --serial /mnt/drive{1..6}
 			}
 
 			if !stat.Mode().IsDir() {
-				return errors.New("path '" + path + "' is not a directory ")
+				return errors.New("path '" + path + "' is not a directory")
 			}
+
+			if !isDirWritable(path) {
+				return errors.New("directory at path '" + path + "' is not writable")
+			}
+
 			paths = append(paths, filepath.Clean(arg))
 		}
 		return perf.RunAndRender(c.Context(), paths...)
@@ -177,4 +185,16 @@ func init() {
 // Execute executes plugin command.
 func Execute(ctx context.Context) error {
 	return dperfCmd.ExecuteContext(ctx)
+}
+
+// Check if the directory is writable or not
+func isDirWritable(dir string) bool {
+	file, err := os.CreateTemp(dir, tmpFile)
+	if err != nil {
+		return false
+	}
+	file.Close()
+	// clean up
+	os.Remove(file.Name())
+	return true
 }
