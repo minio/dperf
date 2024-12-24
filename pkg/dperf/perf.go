@@ -34,6 +34,7 @@ type DrivePerf struct {
 	BlockSize  uint64
 	FileSize   uint64
 	IOPerDrive int
+	WriteOnly  bool
 }
 
 // mustGetUUID - get a random UUID.
@@ -77,20 +78,22 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	}
 	wg.Wait()
 
-	wg.Add(d.IOPerDrive)
-	for i := 0; i < d.IOPerDrive; i++ {
-		go func(idx int) {
-			defer wg.Done()
-			iopath := testPath + "-" + strconv.Itoa(idx)
-			readThroughput, err := d.runReadTest(ctx, iopath, dataBuffers[idx])
-			if err != nil {
-				errs[idx] = err
-				return
-			}
-			readThroughputs[idx] = readThroughput
-		}(i)
+	if !d.WriteOnly {
+		wg.Add(d.IOPerDrive)
+		for i := 0; i < d.IOPerDrive; i++ {
+			go func(idx int) {
+				defer wg.Done()
+				iopath := testPath + "-" + strconv.Itoa(idx)
+				readThroughput, err := d.runReadTest(ctx, iopath, dataBuffers[idx])
+				if err != nil {
+					errs[idx] = err
+					return
+				}
+				readThroughputs[idx] = readThroughput
+			}(i)
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 
 	for _, err := range errs {
 		if err != nil {
@@ -107,8 +110,10 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 	}
 
 	var readThroughput uint64
-	for i := range readThroughputs {
-		readThroughput += readThroughputs[i]
+	if !d.WriteOnly {
+		for i := range readThroughputs {
+			readThroughput += readThroughputs[i]
+		}
 	}
 
 	return &DrivePerfResult{

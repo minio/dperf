@@ -17,7 +17,6 @@
 package dperf
 
 import (
-	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -149,8 +148,8 @@ func alignedBlock(blockSize int) []byte {
 //
 // The aim of fdatasync() is to reduce disk activity for applications that
 // do not require all metadata to be synchronized with the disk.
-func fdatasync(f *os.File) error {
-	return syscall.Fdatasync(int(f.Fd()))
+func fdatasync(fd int) error {
+	return syscall.Fdatasync(fd)
 }
 
 func fadviseSequential(f *os.File, length int64) error {
@@ -185,19 +184,6 @@ func newEncReader(ctx context.Context) io.Reader {
 	return stream.EncryptReader(&nullReader{ctx: ctx}, randSrc[:stream.NonceSize()], nil)
 }
 
-type odirectWriter struct {
-	File *os.File
-}
-
-func (o *odirectWriter) Close() error {
-	fdatasync(o.File)
-	return o.File.Close()
-}
-
-func (o *odirectWriter) Write(buf []byte) (n int, err error) {
-	return o.File.Write(buf)
-}
-
 // disableDirectIO - disables directio mode.
 func disableDirectIO(fd uintptr) error {
 	flag, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
@@ -209,21 +195,33 @@ func disableDirectIO(fd uintptr) error {
 	return err
 }
 
-func copyAligned(fd uintptr, w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64) (int64, error) {
+func copyAligned(fd int, r io.Reader, alignedBuf []byte, totalSize int64) (written int64, err error) {
+	defer func() {
+		ferr := fdatasync(fd)
+		if ferr != nil {
+			// preserve error on fdatasync
+			err = ferr
+		}
+		cerr := syscall.Close(fd)
+		if cerr != nil {
+			// preserve error on close
+			err = cerr
+		}
+	}()
+
 	// Writes remaining bytes in the buffer.
-	writeUnaligned := func(w io.Writer, buf []byte) (remainingWritten int64, err error) {
+	writeUnaligned := func(buf []byte) (remainingWritten int64, err error) {
 		// Disable O_DIRECT on fd's on unaligned buffer
 		// perform an amortized Fdatasync(fd) on the fd at
 		// the end, this is performed by the caller before
 		// closing 'w'.
-		if err = disableDirectIO(fd); err != nil {
+		if err = disableDirectIO(uintptr(fd)); err != nil {
 			return remainingWritten, err
 		}
-		// Since w is *os.File io.Copy shall use ReadFrom() call.
-		return io.Copy(w, bytes.NewReader(buf))
+		n, err := syscall.Write(fd, buf)
+		return int64(n), err
 	}
 
-	var written int64
 	for {
 		buf := alignedBuf
 		if totalSize != -1 {
@@ -242,11 +240,11 @@ func copyAligned(fd uintptr, w io.Writer, r io.Reader, alignedBuf []byte, totalS
 		if len(buf)%4096 == 0 {
 			var n int
 			// buf is aligned for directio write()
-			n, err = w.Write(buf)
+			n, err = syscall.Write(fd, buf)
 			nw = int64(n)
 		} else {
 			// buf is not aligned, hence use writeUnaligned()
-			nw, err = writeUnaligned(w, buf)
+			nw, err = writeUnaligned(buf)
 		}
 		if nw > 0 {
 			written += nw
@@ -275,19 +273,12 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 	}
 
 	startTime := time.Now()
-	f, err := directio.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
+	fd, err := syscall.Open(path, syscall.O_DIRECT|syscall.O_RDWR|syscall.O_CREAT|syscall.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
 
-	// Use odirectWriter instead of os.File so io.CopyBuffer() will only be aware
-	// of a io.Writer interface and will be enforced to use the copy buffer.
-	of := &odirectWriter{
-		File: f,
-	}
-
-	n, err := copyAligned(f.Fd(), of, newEncReader(ctx), data, int64(d.FileSize))
-	of.Close()
+	n, err := copyAligned(fd, newEncReader(ctx), data, int64(d.FileSize))
 	if err != nil {
 		return 0, err
 	}

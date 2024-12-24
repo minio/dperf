@@ -43,6 +43,7 @@ const alignSize = 4096
 // flags
 var (
 	serial     = false
+	writeOnly  = false
 	verbose    = false
 	blockSize  = "4MiB"
 	fileSize   = "1GiB"
@@ -112,6 +113,7 @@ $ dperf --serial /mnt/drive{1..6}
 			FileSize:   fs,
 			Verbose:    verbose,
 			IOPerDrive: ioPerDrive,
+			WriteOnly:  writeOnly,
 		}
 		paths := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -209,6 +211,8 @@ func init() {
 
 	dperfCmd.PersistentFlags().BoolVarP(&serial,
 		"serial", "", serial, "run tests one by one, instead of all at once")
+	dperfCmd.PersistentFlags().BoolVarP(&writeOnly,
+		"write-only", "", writeOnly, "run write only tests")
 	dperfCmd.PersistentFlags().BoolVarP(&verbose,
 		"verbose", "v", verbose, "print READ/WRITE for each paths independently, default only prints aggregated")
 	dperfCmd.PersistentFlags().StringVarP(&blockSize,
