@@ -76,8 +76,8 @@ func (d *DrivePerf) render(results []*DrivePerfResult) {
 	cellText := make([][]string, len(results)+1)
 	cellText[0] = []string{
 		"PATH",
-		"READ",
 		"WRITE",
+		"READ",
 		"",
 	}
 
@@ -103,8 +103,8 @@ func (d *DrivePerf) render(results []*DrivePerfResult) {
 
 		cellText[idx] = []string{
 			result.Path,
-			read,
 			write,
+			read,
 			err,
 		}
 	}
@@ -121,12 +121,12 @@ func (d *DrivePerf) render(results []*DrivePerfResult) {
 	tblAgg := console.NewTable(printColors, []bool{false, false}, 0)
 	cellText = make([][]string, 2)
 	cellText[0] = []string{
-		"TotalREAD",
 		"TotalWRITE",
+		"TotalREAD",
 	}
 	cellText[1] = []string{
-		humanize.IBytes(aggregateRead) + "/s",
 		humanize.IBytes(aggregateWrite) + "/s",
+		humanize.IBytes(aggregateRead) + "/s",
 	}
 	tblAgg.DisplayTable(cellText)
 }

@@ -17,18 +17,21 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/bygui86/multi-profile/v2"
 	"github.com/dustin/go-humanize"
+	"github.com/felixge/fgprof"
+	"github.com/minio/dperf/pkg/dperf"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	"github.com/minio/dperf/pkg/dperf"
 )
 
 // Version version string for dperf
@@ -40,11 +43,15 @@ const alignSize = 4096
 // flags
 var (
 	serial     = false
+	writeOnly  = false
 	verbose    = false
 	blockSize  = "4MiB"
 	fileSize   = "1GiB"
 	cpuNode    = 0
 	ioPerDrive = 4
+	profileDir = "./"
+
+	pCPU, pCPUio, pBlock, pMem, pMutex, pThread, pTrace bool
 )
 
 var dperfCmd = &cobra.Command{
@@ -106,6 +113,7 @@ $ dperf --serial /mnt/drive{1..6}
 			FileSize:   fs,
 			Verbose:    verbose,
 			IOPerDrive: ioPerDrive,
+			WriteOnly:  writeOnly,
 		}
 		paths := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -130,8 +138,66 @@ $ dperf --serial /mnt/drive{1..6}
 			}
 			paths = append(paths, filepath.Clean(arg))
 		}
+		defer startTraces()()
 		return perf.RunAndRender(c.Context(), paths...)
 	},
+}
+
+func startTraces() func() {
+	var profiles []*profile.Profile
+	cfg := &profile.Config{
+		Path:           profileDir,
+		UseTempPath:    false,
+		Quiet:          !verbose,
+		MemProfileRate: 4096,
+		MemProfileType: "heap",
+		CloserHook:     nil,
+		Logger:         nil,
+	}
+	type starter interface {
+		Start() *profile.Profile
+	}
+	startIf := func(c bool, s starter) {
+		if c {
+			profiles = append(profiles, s.Start())
+		}
+	}
+	startIf(pCPU, profile.CPUProfile(cfg))
+	startIf(pMem, profile.MemProfile(cfg))
+	startIf(pBlock, profile.BlockProfile(cfg))
+	startIf(pMutex, profile.MutexProfile(cfg))
+	startIf(pTrace, profile.TraceProfile(cfg))
+	startIf(pThread, profile.ThreadCreationProfile(cfg))
+	var cpuIOBuf bytes.Buffer
+	var stopCPUIO func() error
+	if pCPUio {
+		stopCPUIO = fgprof.Start(&cpuIOBuf, fgprof.FormatPprof)
+		if verbose {
+			fmt.Println("[info] CPU/IO profiling enabled")
+		}
+	}
+	started := time.Now()
+	return func() {
+		for _, p := range profiles {
+			p.Stop()
+		}
+		// Light hack around https://github.com/felixge/fgprof/pull/34
+		if stopCPUIO != nil && time.Since(started) > 100*time.Millisecond {
+			if verbose {
+				fmt.Println("[info]  Stop and flush CPU/IO profiling to file", filepath.Join(profileDir, "cpuio.pprof"))
+			}
+			err := stopCPUIO()
+			if err != nil {
+				fmt.Printf("Failed to stop CPU IO: %v\n", err)
+				return
+			}
+			err = os.WriteFile(filepath.Join(profileDir, "cpuio.pprof"), cpuIOBuf.Bytes(), 0o666)
+			if err != nil {
+				fmt.Printf("Failed to write CPU IO profile: %v\n", err)
+				return
+			}
+		}
+	}
 }
 
 func init() {
@@ -145,14 +211,42 @@ func init() {
 
 	dperfCmd.PersistentFlags().BoolVarP(&serial,
 		"serial", "", serial, "run tests one by one, instead of all at once")
+	dperfCmd.PersistentFlags().BoolVarP(&writeOnly,
+		"write-only", "", writeOnly, "run write only tests")
 	dperfCmd.PersistentFlags().BoolVarP(&verbose,
-		"verbose", "", verbose, "print READ/WRITE for each paths independently, default only prints aggregated")
+		"verbose", "v", verbose, "print READ/WRITE for each paths independently, default only prints aggregated")
 	dperfCmd.PersistentFlags().StringVarP(&blockSize,
 		"blocksize", "b", blockSize, "read/write block size")
 	dperfCmd.PersistentFlags().StringVarP(&fileSize,
 		"filesize", "f", fileSize, "amount of data to read/write per drive")
 	dperfCmd.PersistentFlags().IntVarP(&ioPerDrive,
 		"ioperdrive", "i", ioPerDrive, "number of concurrent I/O per drive, default is 4")
+
+	// Go profiles
+	dperfCmd.PersistentFlags().StringVar(&profileDir,
+		"prof.dir", profileDir, "save profiles in directory")
+	dperfCmd.PersistentFlags().MarkHidden("prof.dir")
+	dperfCmd.PersistentFlags().BoolVar(&pCPU,
+		"prof.cpu", false, "cpu profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.cpu")
+	dperfCmd.PersistentFlags().BoolVar(&pMem,
+		"prof.mem", false, "mem profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.mem")
+	dperfCmd.PersistentFlags().BoolVar(&pBlock,
+		"prof.block", false, "blocking profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.block")
+	dperfCmd.PersistentFlags().BoolVar(&pMutex,
+		"prof.mutex", false, "mutex profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.mutex")
+	dperfCmd.PersistentFlags().BoolVar(&pTrace,
+		"prof.trace", false, "trace profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.trace")
+	dperfCmd.PersistentFlags().BoolVar(&pThread,
+		"prof.thread", false, "thread profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.thread")
+	dperfCmd.PersistentFlags().BoolVar(&pCPUio,
+		"prof.cpuio", false, "cpuio profile")
+	dperfCmd.PersistentFlags().MarkHidden("prof.cpuio")
 
 	dperfCmd.PersistentFlags().MarkHidden("alsologtostderr")
 	dperfCmd.PersistentFlags().MarkHidden("add_dir_header")
