@@ -19,19 +19,16 @@ package dperf
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/minio/pkg/v3/rng"
 	"github.com/ncw/directio"
-	"github.com/secure-io/sio-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -169,20 +166,7 @@ func (n nullReader) Read(b []byte) (int, error) {
 }
 
 func newEncReader(ctx context.Context) io.Reader {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	var randSrc [16]byte
-
-	_, err := io.ReadFull(rng, randSrc[:])
-	if err != nil {
-		panic(err)
-	}
-	rand.New(rng).Read(randSrc[:])
-	block, _ := aes.NewCipher(randSrc[:])
-	gcm, _ := cipher.NewGCM(block)
-	stream := sio.NewStream(gcm, sio.BufSize)
-
-	return stream.EncryptReader(&nullReader{ctx: ctx}, randSrc[:stream.NonceSize()], nil)
+	return rng.NewReader()
 }
 
 type odirectWriter struct {
