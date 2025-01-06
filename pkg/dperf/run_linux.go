@@ -165,7 +165,11 @@ func (n nullReader) Read(b []byte) (int, error) {
 }
 
 func newEncReader(ctx context.Context) io.Reader {
-	return rng.NewReader()
+	r, err := rng.NewReader()
+	if err != nil {
+		panic(err)
+	}
+	return r
 }
 
 // disableDirectIO - disables directio mode.
