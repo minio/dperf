@@ -31,70 +31,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// odirectReader - to support O_DIRECT reads for erasure backends.
-type odirectReader struct {
-	fd        int
-	Bufp      *[]byte
-	buf       []byte
-	err       error
-	seenRead  bool
-	alignment bool
-
-	ctx context.Context
-}
-
-// Read - Implements Reader interface.
-func (o *odirectReader) Read(buf []byte) (n int, err error) {
-	if o.ctx.Err() != nil {
-		return 0, o.ctx.Err()
-	}
-	if o.err != nil && (len(o.buf) == 0 || !o.seenRead) {
-		return 0, o.err
-	}
-	if !o.seenRead {
-		o.buf = *o.Bufp
-		n, err = syscall.Read(o.fd, o.buf)
-		if err != nil && err != io.EOF {
-			if errors.Is(err, syscall.EINVAL) {
-				if err = disableDirectIO(uintptr(o.fd)); err != nil {
-					o.err = err
-					return n, err
-				}
-				n, err = syscall.Read(o.fd, o.buf)
-			}
-			if err != nil && err != io.EOF {
-				o.err = err
-				return n, err
-			}
-		}
-		if n == 0 {
-			if err == nil {
-				err = io.EOF
-			}
-			o.err = err
-			return n, err
-		}
-		o.err = err
-		o.buf = o.buf[:n]
-		o.seenRead = true
-	}
-	if len(buf) >= len(o.buf) {
-		n = copy(buf, o.buf)
-		o.seenRead = false
-		return n, o.err
-	}
-	n = copy(buf, o.buf)
-	o.buf = o.buf[n:]
-	// There is more left in buffer, do not return any EOF yet.
-	return n, nil
-}
-
-// Close - Release the buffer and close the file.
-func (o *odirectReader) Close() error {
-	o.err = errors.New("internal error: odirectReader Read after Close")
-	return syscall.Close(o.fd)
-}
-
 type nullWriter struct{}
 
 func (n nullWriter) Write(b []byte) (int, error) {
@@ -103,21 +39,14 @@ func (n nullWriter) Write(b []byte) (int, error) {
 
 func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	startTime := time.Now()
-	fd, err := syscall.Open(path, syscall.O_DIRECT|syscall.O_RDONLY, 0o400)
+	r, err := os.OpenFile(path, syscall.O_DIRECT|os.O_RDONLY, 0o400)
 	if err != nil {
 		return 0, err
 	}
-	unix.Fadvise(fd, 0, int64(d.FileSize), unix.FADV_SEQUENTIAL)
+	unix.Fadvise(int(r.Fd()), 0, int64(d.FileSize), unix.FADV_SEQUENTIAL)
 
-	of := &odirectReader{
-		fd:        fd,
-		Bufp:      &data,
-		ctx:       ctx,
-		alignment: d.FileSize%4096 == 0,
-	}
-
-	n, err := io.Copy(&nullWriter{}, of)
-	of.Close()
+	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd())
+	r.Close()
 	if err != nil {
 		return 0, err
 	}
@@ -164,7 +93,7 @@ func (n nullReader) Read(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func newEncReader(ctx context.Context) io.Reader {
+func newRandomReader(ctx context.Context) io.Reader {
 	r, err := rng.NewReader()
 	if err != nil {
 		panic(err)
@@ -183,73 +112,108 @@ func disableDirectIO(fd uintptr) error {
 	return err
 }
 
-func copyAligned(fd int, r io.Reader, alignedBuf []byte, totalSize int64) (written int64, err error) {
-	defer func() {
-		ferr := fdatasync(fd)
-		if ferr != nil {
-			// preserve error on fdatasync
-			err = ferr
-		}
-		cerr := syscall.Close(fd)
-		if cerr != nil {
-			// preserve error on close
-			err = cerr
-		}
-	}()
+// DirectioAlignSize - DirectIO alignment needs to be 4K. Defined here as
+// directio.AlignSize is defined as 0 in MacOS causing divide by 0 error.
+const DirectioAlignSize = 4096
 
-	// Writes remaining bytes in the buffer.
-	writeUnaligned := func(buf []byte) (remainingWritten int64, err error) {
-		// Disable O_DIRECT on fd's on unaligned buffer
-		// perform an amortized Fdatasync(fd) on the fd at
-		// the end, this is performed by the caller before
-		// closing 'w'.
-		if err = disableDirectIO(uintptr(fd)); err != nil {
-			return remainingWritten, err
-		}
-		n, err := syscall.Write(fd, buf)
-		return int64(n), err
+// copyAligned - copies from reader to writer using the aligned input
+// buffer, it is expected that input buffer is page aligned to
+// 4K page boundaries. Without passing aligned buffer may cause
+// this function to return error.
+//
+// This code is similar in spirit to io.Copy but it is only to be
+// used with DIRECT I/O based file descriptor and it is expected that
+// input writer *os.File not a generic io.Writer. Make sure to have
+// the file opened for writes with syscall.O_DIRECT flag.
+func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, fd uintptr) (int64, error) {
+	if totalSize == 0 {
+		return 0, nil
 	}
 
+	var written int64
 	for {
 		buf := alignedBuf
-		if totalSize != -1 {
+		if totalSize > 0 {
 			remaining := totalSize - written
 			if remaining < int64(len(buf)) {
 				buf = buf[:remaining]
 			}
 		}
+
+		if len(buf)%DirectioAlignSize != 0 {
+			// Disable O_DIRECT on fd's on unaligned buffer
+			// perform an amortized Fdatasync(fd) on the fd at
+			// the end, this is performed by the caller before
+			// closing 'w'.
+			if err := disableDirectIO(fd); err != nil {
+				return written, err
+			}
+		}
+
 		nr, err := io.ReadFull(r, buf)
-		eof := err == io.EOF || err == io.ErrUnexpectedEOF
+		eof := errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 		if err != nil && !eof {
 			return written, err
 		}
+
 		buf = buf[:nr]
-		var nw int64
-		if len(buf)%4096 == 0 {
-			var n int
+		var (
+			n  int
+			un int
+			nw int64
+		)
+
+		remain := len(buf) % DirectioAlignSize
+		if remain == 0 {
 			// buf is aligned for directio write()
-			n, err = syscall.Write(fd, buf)
+			n, err = w.Write(buf)
 			nw = int64(n)
 		} else {
+			if remain < len(buf) {
+				n, err = w.Write(buf[:len(buf)-remain])
+				if err != nil {
+					return written, err
+				}
+				nw = int64(n)
+			}
+
+			// Disable O_DIRECT on fd's on unaligned buffer
+			// perform an amortized Fdatasync(fd) on the fd at
+			// the end, this is performed by the caller before
+			// closing 'w'.
+			if err = disableDirectIO(fd); err != nil {
+				return written, err
+			}
+
 			// buf is not aligned, hence use writeUnaligned()
-			nw, err = writeUnaligned(buf)
+			// for the remainder
+			un, err = w.Write(buf[len(buf)-remain:])
+			nw += int64(un)
 		}
+
 		if nw > 0 {
 			written += nw
 		}
+
 		if err != nil {
 			return written, err
 		}
+
 		if nw != int64(len(buf)) {
 			return written, io.ErrShortWrite
 		}
 
-		if totalSize != -1 {
-			if written == totalSize {
-				return written, nil
-			}
+		if totalSize > 0 && written == totalSize {
+			// we have written the entire stream, return right here.
+			return written, nil
 		}
+
 		if eof {
+			// We reached EOF prematurely but we did not write everything
+			// that we promised that we would write.
+			if totalSize > 0 && written != totalSize {
+				return written, io.ErrUnexpectedEOF
+			}
 			return written, nil
 		}
 	}
@@ -261,18 +225,28 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 	}
 
 	startTime := time.Now()
-	fd, err := syscall.Open(path, syscall.O_DIRECT|syscall.O_RDWR|syscall.O_CREAT|syscall.O_TRUNC, 0o600)
+	w, err := os.OpenFile(path, syscall.O_DIRECT|os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
 
-	n, err := copyAligned(fd, newEncReader(ctx), data, int64(d.FileSize))
+	n, err := copyAligned(w, newRandomReader(ctx), data, int64(d.FileSize), w.Fd())
 	if err != nil {
+		w.Close()
 		return 0, err
 	}
 
 	if n != int64(d.FileSize) {
+		w.Close()
 		return 0, fmt.Errorf("Expected to write %d, wrote %d bytes", d.FileSize, n)
+	}
+
+	if err := fdatasync(int(w.Fd())); err != nil {
+		return 0, err
+	}
+
+	if err := w.Close(); err != nil {
+		return 0, err
 	}
 
 	dt := float64(time.Since(startTime))

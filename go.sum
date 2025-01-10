@@ -52,8 +52,8 @@ github.com/mattn/go-colorable v0.1.13/go.mod h1:7S9/ev0klgBDR4GtXTXX8a3vIGJpMovk
 github.com/mattn/go-isatty v0.0.16/go.mod h1:kYGgaQfpe5nmfYZH+SKPsOc2e4SrIfOl2e/yFXSvRLM=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
-github.com/minio/pkg/v3 v3.0.26-0.20250106155027-2becdc33e233 h1:SR5q/92Xqkj2Zg3O3sPnJvms+/ZMN5W1mSiA3htdnhc=
-github.com/minio/pkg/v3 v3.0.26-0.20250106155027-2becdc33e233/go.mod h1:mIaN552nu0D2jiSk5BQC8LB25f44ytbOBJCuLtksX7Q=
+github.com/minio/pkg/v3 v3.0.28 h1:8tSuZnJbjc3C3DM2DEh4ZnSWjMZdccd679stk8sPD60=
+github.com/minio/pkg/v3 v3.0.28/go.mod h1:mIaN552nu0D2jiSk5BQC8LB25f44ytbOBJCuLtksX7Q=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/ncw/directio v1.0.5 h1:JSUBhdjEvVaJvOoyPAbcW0fnd0tvRXD76wEfZ1KcQz4=

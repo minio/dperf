@@ -8,7 +8,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/felixge/fgprof v0.9.5
 	github.com/google/uuid v1.6.0
-	github.com/minio/pkg/v3 v3.0.26-0.20250106155027-2becdc33e233
+	github.com/minio/pkg/v3 v3.0.28
 	github.com/ncw/directio v1.0.5
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
