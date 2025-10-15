@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/bygui86/multi-profile/v2"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 	"github.com/dustin/go-humanize"
 	"github.com/felixge/fgprof"
 	"github.com/minio/dperf/pkg/dperf"
@@ -125,15 +127,6 @@ $ dperf --sync -b 4KiB /mnt/drive1
 		// Use sync mode if explicitly requested or if block size < 4KiB
 		useSyncMode := syncMode || bs < alignSize
 
-		perf := &dperf.DrivePerf{
-			Serial:     serial,
-			BlockSize:  bs,
-			FileSize:   fs,
-			Verbose:    verbose,
-			IOPerDrive: ioPerDrive,
-			WriteOnly:  writeOnly,
-			SyncMode:   useSyncMode,
-		}
 		paths := make([]string, 0, len(args))
 		for _, arg := range args {
 			if filepath.Clean(arg) == "" {
@@ -158,7 +151,8 @@ $ dperf --sync -b 4KiB /mnt/drive1
 			paths = append(paths, filepath.Clean(arg))
 		}
 		defer startTraces()()
-		return perf.RunAndRender(c.Context(), paths...)
+
+		return runWithUI(c.Context(), paths, serial, bs, fs, verbose, ioPerDrive, writeOnly, useSyncMode)
 	},
 }
 
@@ -293,3 +287,96 @@ func init() {
 func Execute(ctx context.Context) error {
 	return dperfCmd.ExecuteContext(ctx)
 }
+
+// runWithUI runs the performance test with a real-time Bubble Tea UI
+// Falls back to traditional mode if TTY is not available
+func runWithUI(ctx context.Context, paths []string, serial bool, blockSize, fileSize uint64, verbose bool, ioPerDrive int, writeOnly, syncMode bool) error {
+	// Check if we have a TTY - if not, fall back to traditional mode
+	if !term.IsTerminal(os.Stdout.Fd()) || !term.IsTerminal(os.Stdin.Fd()) {
+		// No TTY available, use traditional mode
+		perf := &dperf.DrivePerf{
+			Serial:     serial,
+			BlockSize:  blockSize,
+			FileSize:   fileSize,
+			Verbose:    verbose,
+			IOPerDrive: ioPerDrive,
+			WriteOnly:  writeOnly,
+			SyncMode:   syncMode,
+		}
+		return perf.RunAndRender(ctx, paths...)
+	}
+
+	// Create the UI model
+	model := newUIModel(paths, writeOnly, verbose)
+
+	// Create a channel to communicate with the Bubble Tea program
+	progressChan := make(chan dperf.ProgressUpdate, 100)
+
+	// Create the performance test with a callback
+	perf := &dperf.DrivePerf{
+		Serial:     serial,
+		BlockSize:  blockSize,
+		FileSize:   fileSize,
+		Verbose:    verbose,
+		IOPerDrive: ioPerDrive,
+		WriteOnly:  writeOnly,
+		SyncMode:   syncMode,
+		ProgressCallback: func(update dperf.ProgressUpdate) {
+			select {
+			case progressChan <- update:
+			default:
+				// Drop update if channel is full to avoid blocking
+			}
+		},
+	}
+
+	// Start the Bubble Tea program
+	p := tea.NewProgram(model, tea.WithAltScreen())
+
+	// Run the performance test in a goroutine
+	go func() {
+		results, err := perf.Run(ctx, paths...)
+		if err != nil {
+			// Send error through progress channel? Or handle differently
+			// For now, just close the channel
+		}
+
+		// Send completion message
+		p.Send(completeMsg{Results: results})
+		close(progressChan)
+	}()
+
+	// Forward progress updates to the Bubble Tea program
+	go func() {
+		for update := range progressChan {
+			p.Send(progressMsg(update))
+		}
+	}()
+
+	// Run the program and wait for it to finish
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+
+	// Print final results to regular terminal so they remain visible
+	if m, ok := finalModel.(*uiModel); ok && m.Complete && m.Results != nil {
+		fmt.Println(m.RenderFinalResults())
+	}
+
+	return nil
+}
+
+// newUIModel creates a new Bubble Tea UI model
+func newUIModel(paths []string, writeOnly, verbose bool) *uiModel {
+	return dperf.NewUIModel(paths, writeOnly, verbose)
+}
+
+// uiModel type alias for the UI model from dperf package
+type uiModel = dperf.UIModel
+
+// progressMsg type alias
+type progressMsg = dperf.ProgressMsg
+
+// completeMsg type alias
+type completeMsg = dperf.CompleteMsg

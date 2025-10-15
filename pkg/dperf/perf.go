@@ -27,15 +27,31 @@ import (
 	"github.com/google/uuid"
 )
 
+// ProgressUpdate represents a real-time progress update for a drive test
+type ProgressUpdate struct {
+	Path            string
+	Phase           string // "write" or "read"
+	BytesProcessed  uint64
+	TotalBytes      uint64
+	Throughput      uint64 // bytes per second
+	IOIndex         int    // which concurrent I/O operation (0 to IOPerDrive-1)
+	Error           error
+}
+
+// ProgressCallback is called during testing to report progress updates
+// This is optional - if nil, no progress updates are sent (library mode)
+type ProgressCallback func(update ProgressUpdate)
+
 // DrivePerf options
 type DrivePerf struct {
-	Serial     bool
-	Verbose    bool
-	BlockSize  uint64
-	FileSize   uint64
-	IOPerDrive int
-	WriteOnly  bool
-	SyncMode   bool // Use O_DSYNC/O_SYNC instead of O_DIRECT
+	Serial           bool
+	Verbose          bool
+	BlockSize        uint64
+	FileSize         uint64
+	IOPerDrive       int
+	WriteOnly        bool
+	SyncMode         bool // Use O_DSYNC/O_SYNC instead of O_DIRECT
+	ProgressCallback ProgressCallback // Optional callback for real-time progress updates
 }
 
 // mustGetUUID - get a random UUID.
@@ -70,7 +86,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 		go func(idx int) {
 			defer wg.Done()
 			iopath := testPath + "-" + strconv.Itoa(idx)
-			writeThroughput, err := d.runWriteTest(ctx, iopath, dataBuffers[idx])
+			writeThroughput, err := d.runWriteTestWithIndex(ctx, iopath, dataBuffers[idx], idx)
 			if err != nil {
 				errs[idx] = err
 				return
@@ -86,7 +102,7 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 			go func(idx int) {
 				defer wg.Done()
 				iopath := testPath + "-" + strconv.Itoa(idx)
-				readThroughput, err := d.runReadTest(ctx, iopath, dataBuffers[idx])
+				readThroughput, err := d.runReadTestWithIndex(ctx, iopath, dataBuffers[idx], idx)
 				if err != nil {
 					errs[idx] = err
 					return
@@ -175,4 +191,9 @@ func (d *DrivePerf) RunAndRender(ctx context.Context, paths ...string) error {
 
 	d.render(results)
 	return nil
+}
+
+// Render renders the results (exported for use by cmd package)
+func (d *DrivePerf) Render(results []*DrivePerfResult) {
+	d.render(results)
 }

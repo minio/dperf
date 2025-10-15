@@ -38,6 +38,10 @@ func (n nullWriter) Write(b []byte) (int, error) {
 }
 
 func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
+	return d.runReadTestWithIndex(ctx, path, data, 0)
+}
+
+func (d *DrivePerf) runReadTestWithIndex(ctx context.Context, path string, data []byte, ioIndex int) (uint64, error) {
 	startTime := time.Now()
 
 	// For reads, prefer O_DIRECT to bypass page cache when possible
@@ -61,7 +65,17 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (
 		unix.Fadvise(int(r.Fd()), 0, int64(d.FileSize), unix.FADV_DONTNEED)
 	}
 
-	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd(), !useDirectIO)
+	progressWriter := &progressTracker{
+		w:           &nullWriter{},
+		callback:    d.ProgressCallback,
+		path:        filepath.Dir(filepath.Dir(path)), // Get the drive path (parent of testUUID dir)
+		phase:       "read",
+		totalBytes:  d.FileSize,
+		ioIndex:     ioIndex,
+		startTime:   startTime,
+	}
+
+	n, err := copyAligned(progressWriter, r, data, int64(d.FileSize), r.Fd(), !useDirectIO)
 	r.Close()
 	if err != nil {
 		return 0, err
@@ -249,6 +263,10 @@ func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, f
 }
 
 func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) (uint64, error) {
+	return d.runWriteTestWithIndex(ctx, path, data, 0)
+}
+
+func (d *DrivePerf) runWriteTestWithIndex(ctx context.Context, path string, data []byte, ioIndex int) (uint64, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
 	}
@@ -270,7 +288,17 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 		return 0, err
 	}
 
-	n, err := copyAligned(w, newRandomReader(ctx), data, int64(d.FileSize), w.Fd(), d.SyncMode)
+	progressWriter := &progressTracker{
+		w:           w,
+		callback:    d.ProgressCallback,
+		path:        filepath.Dir(filepath.Dir(path)), // Get the drive path (parent of testUUID dir)
+		phase:       "write",
+		totalBytes:  d.FileSize,
+		ioIndex:     ioIndex,
+		startTime:   startTime,
+	}
+
+	n, err := copyAligned(progressWriter, newRandomReader(ctx), data, int64(d.FileSize), w.Fd(), d.SyncMode)
 	if err != nil {
 		w.Close()
 		return 0, err
@@ -292,4 +320,52 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 	dt := float64(time.Since(startTime))
 	throughputInSeconds := (float64(d.FileSize) / dt) * float64(time.Second)
 	return uint64(throughputInSeconds), nil
+}
+
+// progressTracker wraps an io.Writer and reports progress via callback
+type progressTracker struct {
+	w              io.Writer
+	callback       ProgressCallback
+	path           string
+	phase          string
+	totalBytes     uint64
+	bytesProcessed uint64
+	ioIndex        int
+	startTime      time.Time
+	lastReport     time.Time
+}
+
+func (p *progressTracker) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	if err != nil {
+		return n, err
+	}
+
+	p.bytesProcessed += uint64(n)
+
+	// Report progress if callback is set
+	// Rate-limit updates to avoid overwhelming the UI (report every 10ms)
+	if p.callback != nil {
+		now := time.Now()
+		if now.Sub(p.lastReport) >= 10*time.Millisecond || p.bytesProcessed == p.totalBytes {
+			dt := float64(now.Sub(p.startTime))
+			throughput := uint64(0)
+			if dt > 0 {
+				throughput = uint64((float64(p.bytesProcessed) / dt) * float64(time.Second))
+			}
+
+			p.callback(ProgressUpdate{
+				Path:           p.path,
+				Phase:          p.phase,
+				BytesProcessed: p.bytesProcessed,
+				TotalBytes:     p.totalBytes,
+				Throughput:     throughput,
+				IOIndex:        p.ioIndex,
+				Error:          nil,
+			})
+			p.lastReport = now
+		}
+	}
+
+	return n, nil
 }
