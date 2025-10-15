@@ -55,13 +55,9 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 
 	dataBuffers := make([][]byte, d.IOPerDrive)
 	for i := 0; i < d.IOPerDrive; i++ {
-		// In sync mode or with small block sizes, use regular buffer allocation
-		// Otherwise, use aligned blocks for O_DIRECT
-		if d.SyncMode {
-			dataBuffers[i] = make([]byte, d.BlockSize)
-		} else {
-			dataBuffers[i] = alignedBlock(int(d.BlockSize))
-		}
+		// Use aligned blocks when block size supports O_DIRECT (>= 4KiB)
+		// For smaller block sizes, aligned blocks are still fine (they're just regular buffers with alignment)
+		dataBuffers[i] = alignedBlock(int(d.BlockSize))
 	}
 
 	testUUIDPath := filepath.Join(path, testUUID)

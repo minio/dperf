@@ -40,14 +40,14 @@ func (n nullWriter) Write(b []byte) (int, error) {
 func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	startTime := time.Now()
 
-	// Choose flags based on sync mode
+	// For reads, prefer O_DIRECT to bypass page cache when possible
+	// For small block sizes (< 4KiB), use regular I/O with FADV_DONTNEED to drop cache
 	var flags int
-	if d.SyncMode {
-		// Use O_SYNC for synchronized reads (for small block sizes or when --sync is specified)
-		flags = syscall.O_SYNC | os.O_RDONLY
-	} else {
-		// Use O_DIRECT for direct I/O (bypasses page cache)
+	useDirectIO := d.BlockSize >= DirectioAlignSize
+	if useDirectIO {
 		flags = syscall.O_DIRECT | os.O_RDONLY
+	} else {
+		flags = os.O_RDONLY
 	}
 
 	r, err := os.OpenFile(path, flags, 0o400)
@@ -56,13 +56,26 @@ func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (
 	}
 	unix.Fadvise(int(r.Fd()), 0, int64(d.FileSize), unix.FADV_SEQUENTIAL)
 
-	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd(), d.SyncMode)
+	// For non-O_DIRECT reads, advise kernel to not cache the data
+	if !useDirectIO {
+		unix.Fadvise(int(r.Fd()), 0, int64(d.FileSize), unix.FADV_DONTNEED)
+	}
+
+	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd(), !useDirectIO)
 	r.Close()
 	if err != nil {
 		return 0, err
 	}
 	if n != int64(d.FileSize) {
 		return 0, fmt.Errorf("Expected read %d, read %d", d.FileSize, n)
+	}
+
+	// Drop any cached pages after reading to ensure future reads are also uncached
+	if !useDirectIO {
+		if f, err := os.Open(path); err == nil {
+			unix.Fadvise(int(f.Fd()), 0, 0, unix.FADV_DONTNEED)
+			f.Close()
+		}
 	}
 
 	dt := float64(time.Since(startTime))
