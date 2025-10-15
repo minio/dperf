@@ -39,13 +39,24 @@ func (n nullWriter) Write(b []byte) (int, error) {
 
 func (d *DrivePerf) runReadTest(ctx context.Context, path string, data []byte) (uint64, error) {
 	startTime := time.Now()
-	r, err := os.OpenFile(path, syscall.O_DIRECT|os.O_RDONLY, 0o400)
+
+	// Choose flags based on sync mode
+	var flags int
+	if d.SyncMode {
+		// Use O_SYNC for synchronized reads (for small block sizes or when --sync is specified)
+		flags = syscall.O_SYNC | os.O_RDONLY
+	} else {
+		// Use O_DIRECT for direct I/O (bypasses page cache)
+		flags = syscall.O_DIRECT | os.O_RDONLY
+	}
+
+	r, err := os.OpenFile(path, flags, 0o400)
 	if err != nil {
 		return 0, err
 	}
 	unix.Fadvise(int(r.Fd()), 0, int64(d.FileSize), unix.FADV_SEQUENTIAL)
 
-	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd())
+	n, err := copyAligned(&nullWriter{}, r, data, int64(d.FileSize), r.Fd(), d.SyncMode)
 	r.Close()
 	if err != nil {
 		return 0, err
@@ -125,7 +136,10 @@ const DirectioAlignSize = 4096
 // used with DIRECT I/O based file descriptor and it is expected that
 // input writer *os.File not a generic io.Writer. Make sure to have
 // the file opened for writes with syscall.O_DIRECT flag.
-func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, fd uintptr) (int64, error) {
+//
+// When syncMode is true, alignment checks are skipped as O_DSYNC/O_SYNC
+// is used instead of O_DIRECT.
+func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, fd uintptr, syncMode bool) (int64, error) {
 	if totalSize == 0 {
 		return 0, nil
 	}
@@ -140,7 +154,8 @@ func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, f
 			}
 		}
 
-		if len(buf)%DirectioAlignSize != 0 {
+		// In sync mode, we don't need to worry about alignment since we're not using O_DIRECT
+		if !syncMode && len(buf)%DirectioAlignSize != 0 {
 			// Disable O_DIRECT on fd's on unaligned buffer
 			// perform an amortized Fdatasync(fd) on the fd at
 			// the end, this is performed by the caller before
@@ -164,8 +179,9 @@ func copyAligned(w io.Writer, r io.Reader, alignedBuf []byte, totalSize int64, f
 		)
 
 		remain := len(buf) % DirectioAlignSize
-		if remain == 0 {
-			// buf is aligned for directio write()
+		// In sync mode, treat all buffers as "aligned" (no special handling needed)
+		if syncMode || remain == 0 {
+			// buf is aligned for directio write() or we're in sync mode
 			n, err = w.Write(buf)
 			nw = int64(n)
 		} else {
@@ -225,12 +241,23 @@ func (d *DrivePerf) runWriteTest(ctx context.Context, path string, data []byte) 
 	}
 
 	startTime := time.Now()
-	w, err := os.OpenFile(path, syscall.O_DIRECT|os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
+
+	// Choose flags based on sync mode
+	var flags int
+	if d.SyncMode {
+		// Use O_DSYNC for synchronized writes (for small block sizes or when --sync is specified)
+		flags = syscall.O_DSYNC | os.O_RDWR | os.O_CREATE | os.O_TRUNC
+	} else {
+		// Use O_DIRECT for direct I/O (bypasses page cache)
+		flags = syscall.O_DIRECT | os.O_RDWR | os.O_CREATE | os.O_TRUNC
+	}
+
+	w, err := os.OpenFile(path, flags, 0o600)
 	if err != nil {
 		return 0, err
 	}
 
-	n, err := copyAligned(w, newRandomReader(ctx), data, int64(d.FileSize), w.Fd())
+	n, err := copyAligned(w, newRandomReader(ctx), data, int64(d.FileSize), w.Fd(), d.SyncMode)
 	if err != nil {
 		w.Close()
 		return 0, err

@@ -45,6 +45,7 @@ var (
 	serial     = false
 	writeOnly  = false
 	verbose    = false
+	syncMode   = false
 	blockSize  = "4MiB"
 	fileSize   = "1GiB"
 	cpuNode    = 0
@@ -61,13 +62,17 @@ var dperfCmd = &cobra.Command{
 MinIO drive performance utility
 --------------------------------
   dperf measures throughput of each of the drives mounted at PATH...
+
+  By default, dperf uses O_DIRECT for block sizes >= 4KiB to bypass the page cache.
+  For block sizes < 4KiB, it automatically switches to O_DSYNC/O_SYNC mode.
+  You can explicitly enable sync mode for any block size using the --sync flag.
 `,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	Args:          cobra.MinimumNArgs(1),
 	Version:       Version,
 	Example: `
-# run dpref on drive mounted at /mnt/drive1
+# run dperf on drive mounted at /mnt/drive1
 $ dperf /mnt/drive1
 
 # run dperf on drives 1 to 6. Output will be sorted by throughput. Fastest drive is at the top.
@@ -75,6 +80,12 @@ $ dperf /mnt/drive{1..6}
 
 # run dperf on drives one-by-one
 $ dperf --serial /mnt/drive{1..6}
+
+# run dperf with 1KiB block size (automatically uses O_DSYNC)
+$ dperf -b 1KiB /mnt/drive1
+
+# run dperf with 4KiB block size using O_DSYNC instead of O_DIRECT
+$ dperf --sync -b 4KiB /mnt/drive1
 `,
 	RunE: func(c *cobra.Command, args []string) error {
 		bs, err := humanize.ParseBytes(blockSize)
@@ -82,11 +93,13 @@ $ dperf --serial /mnt/drive{1..6}
 			return fmt.Errorf("Invalid blocksize format: %v", err)
 		}
 
-		if bs < alignSize {
-			return fmt.Errorf("Invalid blocksize must greater than 4k: %d", bs)
+		if bs == 0 {
+			return fmt.Errorf("Invalid blocksize must be greater than 0: %d", bs)
 		}
 
-		if bs%alignSize != 0 {
+		// For block sizes < 4KiB, we'll use O_DSYNC instead of O_DIRECT
+		// For block sizes >= 4KiB, we require alignment for O_DIRECT
+		if bs >= alignSize && bs%alignSize != 0 {
 			return fmt.Errorf("Invalid blocksize must be multiples of 4k: %d", bs)
 		}
 
@@ -95,17 +108,22 @@ $ dperf --serial /mnt/drive{1..6}
 			return fmt.Errorf("Invalid filesize format: %v", err)
 		}
 
-		if fs < alignSize {
-			return fmt.Errorf("Invalid filesize must greater than 4k: %d", fs)
+		if fs == 0 {
+			return fmt.Errorf("Invalid filesize must be greater than 0: %d", fs)
 		}
 
-		if fs%alignSize != 0 {
+		// For file sizes with small block sizes, we relax the alignment requirement
+		// For file sizes with block sizes >= 4KiB, we require alignment for O_DIRECT
+		if bs >= alignSize && fs%alignSize != 0 {
 			return fmt.Errorf("Invalid filesize must multiples of 4k: %d", fs)
 		}
 
 		if ioPerDrive <= 0 {
 			return fmt.Errorf("Invalid ioperdrive must greater than 0: %d", ioPerDrive)
 		}
+
+		// Use sync mode if explicitly requested or if block size < 4KiB
+		useSyncMode := syncMode || bs < alignSize
 
 		perf := &dperf.DrivePerf{
 			Serial:     serial,
@@ -114,6 +132,7 @@ $ dperf --serial /mnt/drive{1..6}
 			Verbose:    verbose,
 			IOPerDrive: ioPerDrive,
 			WriteOnly:  writeOnly,
+			SyncMode:   useSyncMode,
 		}
 		paths := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -215,6 +234,8 @@ func init() {
 		"write-only", "", writeOnly, "run write only tests")
 	dperfCmd.PersistentFlags().BoolVarP(&verbose,
 		"verbose", "v", verbose, "print READ/WRITE for each paths independently, default only prints aggregated")
+	dperfCmd.PersistentFlags().BoolVarP(&syncMode,
+		"sync", "", syncMode, "use O_DSYNC for writes and O_SYNC for reads instead of O_DIRECT (automatically enabled for block sizes < 4KiB)")
 	dperfCmd.PersistentFlags().StringVarP(&blockSize,
 		"blocksize", "b", blockSize, "read/write block size")
 	dperfCmd.PersistentFlags().StringVarP(&fileSize,

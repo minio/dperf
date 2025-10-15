@@ -35,6 +35,7 @@ type DrivePerf struct {
 	FileSize   uint64
 	IOPerDrive int
 	WriteOnly  bool
+	SyncMode   bool // Use O_DSYNC/O_SYNC instead of O_DIRECT
 }
 
 // mustGetUUID - get a random UUID.
@@ -54,8 +55,13 @@ func (d *DrivePerf) runTests(ctx context.Context, path string, testUUID string) 
 
 	dataBuffers := make([][]byte, d.IOPerDrive)
 	for i := 0; i < d.IOPerDrive; i++ {
-		// Read Aligned block upto a multiple of BlockSize
-		dataBuffers[i] = alignedBlock(int(d.BlockSize))
+		// In sync mode or with small block sizes, use regular buffer allocation
+		// Otherwise, use aligned blocks for O_DIRECT
+		if d.SyncMode {
+			dataBuffers[i] = make([]byte, d.BlockSize)
+		} else {
+			dataBuffers[i] = alignedBlock(int(d.BlockSize))
+		}
 	}
 
 	testUUIDPath := filepath.Join(path, testUUID)
